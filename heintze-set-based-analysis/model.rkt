@@ -1,6 +1,7 @@
 #lang mf-apply racket/base
 
 (require
+  racket/set
   redex/reduction-semantics)
 
 (module+ test
@@ -29,7 +30,10 @@
  [c ::= ;; value constructor
         cons
         A B C]
- [x ::= variable-not-otherwise-mentioned])
+ [x ::= variable-not-otherwise-mentioned]
+ #:binding-forms
+  (λ x e #:refers-to x)
+  (fix x e #:refers-to x))
 
 (define-metafunction FL
   dom : E -> (x ...)
@@ -196,5 +200,36 @@
 )
 
 ;; -----------------------------------------------------------------------------
-;; Section 2: "We now modifu the operational semantics so that dependencies
+;; Section 2: "We now modify the operational semantics so that dependencies
 ;;  between variables are ignored"
+
+(define-extended-language FLS FL
+ [bv* ::= (bv ...)]
+ [ξ ::= ((x bv*) ...)])
+
+(define-judgment-form FLS
+  #:mode (∈ I I)
+  #:contract (∈ E ξ)
+  [
+   --- In-Empty
+   (∈ () ξ)]
+  [
+   (where ((x_2 bv*_2) ... (x_0 (bv_3 ... bv_0 bv_4 ...)) (x_3 bv*_5) ...) ξ)
+   (∈ ((x_1 bv_1) ...) ξ)
+   --- In-Var
+   (∈ ((x_0 bv_0) (x_1 bv_1) ...) ξ)])
+
+
+(module+ test
+  (test-case "∈"
+    (check-true (judgment-holds (∈ () ())))
+    (check-true (judgment-holds (∈ ((x (A))) ((x ((A)))))))
+    (check-true (judgment-holds (∈ ((x (A))) ((x ((A) (B) (C)))))))
+    (check-true (judgment-holds (∈ ((x (A)) (y (A))) ((y ((B) (A))) (x ((A) (B) (C)))))))
+
+    (check-false (judgment-holds (∈ ((x (A))) ())))
+  )
+)
+
+;; -----------------------------------------------------------------------------
+
