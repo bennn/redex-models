@@ -1,4 +1,4 @@
 redex-models
 ===
 
-Miscellaneous Redex models
+Some Redex models, FOR FREE
