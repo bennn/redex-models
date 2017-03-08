@@ -4,6 +4,14 @@ redex-models
 Some Redex models, FOR FREE
 
 
+### Install
+
+```
+    $ git clone https://github.com/bennn/redex-models
+    $ raco pkg install --skip-installed mf-apply rackunit-abbrevs
+```
+
+
 ### Testing
 
 To test any model `<FILE.RKT>`, run:
