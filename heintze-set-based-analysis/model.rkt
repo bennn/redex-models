@@ -722,8 +722,91 @@
             (case (A) [(A) ⇒ (fix y (λ n (B)))]
                       [z ⇒ (fix x (A))]))))
     (check-false (judgment-holds
+      (safe ((x ((fix x (A)))) (y ((fix y (λ n (B))))))
+            (case (A) [(A) ⇒ ((fix y (λ n (B))) (A))]
+                      [z ⇒ (fix x (A))]))))
+    (check-true (judgment-holds
+      (safe ((n ((A))) (x ((fix x (A)))) (y ((fix y (λ n (B))))))
+            (case (A) [(A) ⇒ ((fix y (λ n (B))) (A))]
+                      [z ⇒ (fix x (A))]))))
+    (check-false (judgment-holds
       (safe ((x ((fix x (A)))) (y ((B))))
             (case (A) [(A) ⇒ (fix y (λ n (B)))]
                       [z ⇒ (fix x (A))]))))
   )
+)
+
+;; -----------------------------------------------------------------------------
+;; Section 2: Theorem 1: Soundness: if ξ is safe wrt a closed term e0,
+;; then  `⊢ e0 → v` implies `ξ ⊢ e0 ~~> v`
+
+(define-metafunction FLS
+  check-theorem-1 : ξ e -> boolean
+  [(check-theorem-1 ξ e)
+   #true
+   (side-condition (debug "theorem-1 ~a" (term e)))
+   (judgment-holds (safe ξ e))
+   (side-condition (debug "SAFE"))
+   (where v (eval e))
+   (side-condition (debug "EVAL to ~a" (term v)))
+   (judgment-holds (~~> ξ e v))]
+  [(check-theorem-1 ξ e)
+   #false])
+
+(module+ test
+  (test-case "theorem1:basic-pass"
+    ;; check that the examples from the "safe" tests are all sound
+
+    (check-true* (λ (x) (term #{check-theorem-1 ,(car x) ,(cadr x)}))
+     [(term [((x ((A)))) ((λ x x) (A))])]
+     [(term [((x ((C) (A) (B)))) ((λ x x) (A))])]
+     [(term [((a ((A))) (b ((A))))
+             (case (cons (A) (A))
+              [(cons a b) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((a ((B) (A))) (b ((cons (B) (B)) (A))))
+             (case (cons (A) (A))
+              [(cons a b) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((d ((cons (A) (A)))))
+             (case (cons (A) (A))
+              [(A) ⇒ (B)]
+              [d ⇒ (C)])])]
+     [(term [((a ((A))) (b ((A))) (d ((A) (cons (A) (A)))))
+             (case (cons (A) (A))
+              [(A) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((x ((fix x (A))))) (fix x (A))])]
+     [(term [((x ((A) (B) (C) (fix x (A))))) (fix x (A))])]
+     [(term [((x ((fix x (A)))))
+             (case (A) [(A) ⇒ (fix x (A))]
+                       [z ⇒ (fix x (A))])])]
+     [(term [((n ((A))) (x ((fix x (A)))) (y ((fix y (λ n (B))))))
+             (case (A) [(A) ⇒ ((fix y (λ n (B))) (A))]
+                       [z ⇒ (fix x (A))])])]))
+
+  (test-case "theorem-1:basic-fail"
+    (check-false* (λ (x) (term #{check-theorem-1 ,(car x) ,(cadr x)}))
+     [(term [() ((λ x x) (A))])]
+     [(term [((x ((B)))) ((λ x x) (A))])]
+     [(term [((x ((A))))
+             (case (cons (A) (A))
+              [(cons a b) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((a ((A))) (b ((B))))
+             (case (cons (A) (A))
+              [(cons a b) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((x ((A))))
+             (case (cons (A) (A))
+              [(A) ⇒ b]
+              [d ⇒ (C)])])]
+     [(term [((d ((A))))
+             (case (cons (A) (A))
+              [(A) ⇒ (B)]
+              [d ⇒ (C)])])]
+     [(term [() (fix x (A))])]
+     [(term [((x ((fix x (A)))) (y ((B))))
+             (case (A) [(A) ⇒ (fix y (λ n (B)))]
+                       [z ⇒ (fix x (A))])])]))
 )
