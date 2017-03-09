@@ -744,12 +744,17 @@
   check-theorem-1 : ξ e -> boolean
   [(check-theorem-1 ξ e)
    #true
-   (side-condition (debug "theorem-1 ~a" (term e)))
    (judgment-holds (safe ξ e))
-   (side-condition (debug "SAFE"))
    (where v (eval e))
-   (side-condition (debug "EVAL to ~a" (term v)))
    (judgment-holds (~~> ξ e v))]
+  [(check-theorem-1 ξ e)
+   ,(raise-arguments-error 'theorem-1-unsound
+      "environment is safe for closed term, but does not approximate the runtime behavior"
+      "set-env" (term ξ)
+      "term" (term e)
+      "(derived-value)" (term v))
+   (judgment-holds (safe ξ e))
+   (where v (eval e))]
   [(check-theorem-1 ξ e)
    #false])
 
@@ -810,3 +815,80 @@
              (case (A) [(A) ⇒ (fix y (λ n (B)))]
                        [z ⇒ (fix x (A))])])]))
 )
+
+;; -----------------------------------------------------------------------------
+;; Proposition 1: minimality : if ξ_1 and ξ_2 are safe wrt to a closed term
+;;  `e0`, then so is `ξ_1 ∩ ξ_2`. Moreover `ξ_1 ∩ ξ_2 ⊢ e0 ~~> v` implies
+;;  `ξ_1 ⊢ e_0 ~~> v` and `ξ_2 ⊢ e0 ~~> v`.
+
+(define-metafunction FLS
+  check-proposition-1 : ξ ξ e -> boolean
+  [(check-proposition-1 ξ_1 ξ_2 e_0)
+   #true
+   (judgment-holds (safe ξ_1 e_0))
+   (judgment-holds (safe ξ_2 e_0))
+   (where ξ_3 (∩ ξ_1 ξ_2))
+   (judgment-holds (safe ξ_3 e_0))
+   (judgment-holds (~~> ξ_3 e_0 v_3))
+   (judgment-holds (~~> ξ_1 e_0 v_3))
+   (judgment-holds (~~> ξ_2 e_0 v_3))]
+  [(check-proposition-1 ξ_1 ξ_2 e_0)
+   ,(raise-arguments-error 'proposition-1 "intersection of safe environment is not safe"
+      "env1" (term ξ_1)
+      "env2" (term ξ_2)
+      "term" (term e)
+      "(intersection)" (term ξ_3))
+   (judgment-holds (safe ξ_1 e_0))
+   (judgment-holds (safe ξ_2 e_0))
+   (where ξ_3 (∩ ξ_1 ξ_2))
+   (where #t ,(not (judgment-holds (safe ξ_3 e_0))))]
+  [(check-proposition-1 ξ_1 ξ_2 e_0)
+   ,(raise-arguments-error 'proposition-1 "intersected environment produces value not in prior approximations"
+      "env1" (term ξ_1)
+      "env2" (term ξ_2)
+      "term" (term e_0)
+      "(intersected)" (term ξ_3)
+      "(derived-value)" (term v_3))
+   (judgment-holds (safe ξ_1 e_0))
+   (judgment-holds (safe ξ_2 e_0))
+   (where ξ_3 (∩ ξ_1 ξ_2))
+   (judgment-holds (safe ξ_3 e_0))
+   (judgment-holds (~~> ξ_3 e_0 v_3))
+   (where #f ,(and (judgment-holds (~~> ξ_1 e_0 v_3))
+                   (judgment-holds (~~> ξ_2 e_0 v_3))))]
+  [(check-proposition-1 ξ_1 ξ_2 e_0)
+   #f
+   ])
+
+(define-metafunction FLS
+  ∩ : ξ ξ -> any
+  [(∩ ξ_1 ())
+   ξ_1]
+  [(∩ () ξ_2)
+   ξ_2]
+  [(∩ ((x_0 bv*_0) (x_1 bv*_1) ...) ((x_2 bv*_2) ... (x_0 bv*_3) (x_4 bv*_4) ...))
+   ((x_0 bv*_6) (x_5 bv*_5) ...)
+   (where bv*_6 ,(set-intersect (term bv*_0) (term bv*_3)))
+   (where ((x_5 bv*_5) ...) (∩ ((x_1 bv*_1) ...) ((x_2 bv*_2) ... (x_4 bv*_4) ...)))])
+
+(module+ test
+  (test-case "check-prop-1"
+    (check-true* (λ (x) (term #{check-proposition-1 ,(car x) ,(cadr x) ,(caddr x)}))
+     [(term [((x ((A))))
+             ((x ((A) (B))))
+             ((λ x x) (A))])]
+     [(term [((n ((A))) (x ((fix x (A)))) (y ((fix y (λ n (B))))))
+             ((n ((B) (C) (A))) (x ((fix x (A)))) (y ((fix y (λ n (B))))))
+             (case (A) [(A) ⇒ ((fix y (λ n (B))) (A))]
+                       [z ⇒ (fix x (A))])])]))
+)
+
+;; -----------------------------------------------------------------------------
+;; Section 2: Definition 1: Set Based Approximation
+;;  let `ξ_0` be the least set environment that is safe wrt `e_0`.
+;;  The set based approximation of `e_0` denoted `sba(e_0)` is:
+;;
+;;  sba(e_0) = {v | ξ_0 ⊢ e_0 ~~> v}
+;;
+;; (Cannot program this because no way to pick `ξ_0`)
+
