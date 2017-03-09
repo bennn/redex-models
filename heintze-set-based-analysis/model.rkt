@@ -5,7 +5,8 @@
   (only-in racket/list
     first
     second
-    rest)
+    rest
+    cartesian-product)
   (only-in racket/random
     random-ref)
   redex/reduction-semantics
@@ -101,6 +102,8 @@
 (define constr? (redex-match? FL constr))
 (define conj? (redex-match? FL conj))
 (define sc-value? (redex-match? FL sc-value))
+(define sc-value*? (redex-match? FL sc-value*))
+(define IN? (redex-match? FL IN))
 
 (define (λ? t) (and (pair? t) (eq? 'λ (car t))))
 (define (constant? t) (and (pair? t) (c? (car t))))
@@ -229,7 +232,19 @@
      [(term (cons (A) [((x (A))) (λ y x)]))]
      [(term (() (λ n n)))]))
 
-  (check-true (v-? (term (cons (A) (λ y x)))))
+  (test-case "redex-match:unorganized"
+    (check-true (v-? (term (cons (A) (λ y x)))))
+
+    (check-true (sc-value? (term (A))))
+    (check-true (sc-value*? (term ((A)))))
+
+    (check-true (setvar? (term X)))
+    (check-true (setvar? (term (ran (λ x (C))))))
+    (check-true (sc-value? (term (A))))
+    (check-true (IN? (term ((X ((A)))))))
+    (check-true (IN? (term (((ran (λ x (C))) ((C)))))))
+    (check-true (IN? (term ((X ((A))) ((ran (λ x (C))) ((C)))))))
+  )
 
   (test-case "dom"
     (check-apply* (λ (x) (term (dom ,x)))
@@ -1012,7 +1027,6 @@
       ==> #true]))
 )
 
-
 (define-judgment-form FL
   #:mode (interpretation I I O)
   #:contract (interpretation IN se sc-value*)
@@ -1022,7 +1036,9 @@
    (interpretation IN setvar sc-value*)]
   [
    (where (sc-value*_0 ...) (#{irefs IN se_0} ...))
-   (where sc-value* ,(apply set-union (term (sc-value*_0 ...))))
+   (where sc-value* ,(apply set-union
+                       (map (λ (t) (list (cons (term c) t)))
+                            (apply cartesian-product (term (sc-value*_0 ...))))))
    --- I-C
    (interpretation IN (c se_0 ...) sc-value*)]
   [
@@ -1030,19 +1046,20 @@
    (interpretation IN (λ x e) ((λ x e)))]
   [
    (interpretation IN se_0 ())
-   --- I-ifnonempty-1
-   (interpretation IN (ifnonempty se_0 se_1) ())]
+   --- I-ifnotempty-1
+   (interpretation IN (ifnotempty se_0 se_1) ())]
   [
    (interpretation IN se_0 sc-value*_0)
    (side-condition ,(not (null? (term sc-value*_0))))
    (interpretation IN se_1 sc-value*)
-   --- I-ifnonempty-2
-   (interpretation IN (ifnonempty se_0 se_1) sc-value*)]
+   --- I-ifnotempty-2
+   (interpretation IN (ifnotempty se_0 se_1) sc-value*)]
   [
    (interpretation IN se_0 sc-value*_0)
    (where (sc-value_0 ...) ,(filter λ? (term sc-value*_0)))
    (interpretation IN se_1 sc-value*_1)
    (side-condition ,(not (null? (term sc-value*_1))))
+   ;; TODO how is this 'ran' requirement NOT just bootstrapping?
    (interpretation IN (ran sc-value_0) sc-value*_2) ...
    ;; damn
    (side-condition ,(for/and ([x (in-list (map cadr (term (sc-value_0 ...))))])
@@ -1072,6 +1089,65 @@
    --- I-case
    (interpretation IN (case se_0 [(c X_1 ...) ⇒ se_1] [X_2 ⇒ se_2]) sc-value*)])
 
+(define-metafunction FL
+  interpretation# : IN se -> sc-value*
+  [(interpretation# IN se)
+   sc-value*
+   (judgment-holds (interpretation IN se sc-value*))]
+  [(interpretation# IN se)
+   ,(raise-user-error 'interpretation "undefined for ~a ~a" (term IN) (term se))])
+
+(module+ test
+  (test-case "interpretation"
+  (parameterize ([*debug?* #t])
+    (check-apply* (λ (t) (term #{interpretation# ,(car t) ,(cadr t)}))
+     [(term [((X ((A) (B) (C)))) X])
+      ==> (term ((A) (B) (C)))]
+     [(term [(((ran (λ x (A))) ((A))) (X ((B) (C))))
+             X])
+      ==> (term ((B) (C)))]
+     [(term [() (A)])
+      ==> (term ((A)))]
+     [(term [((X ((A) (B))))
+             (cons X X)])
+      ==> (term ((cons (B) (B)) (cons (B) (A)) (cons (A) (B)) (cons (A) (A))))]
+     [(term [() (λ x (A))])
+      ==> (term ((λ x (A))))]
+     [(term [() (ifnotempty X (A))])
+      ==> (term ())]
+     [(term [((X ((B) (C)))) (ifnotempty X (A))])
+      ==> (term ((A)))]
+     [(term [((X ((A)))
+              ((ran (λ x (C))) ((C))))
+             (apply (λ x (C)) (A))])
+      ==> (term ((C)))]
+     [(term [((X ((A) (λ z z)))
+              (Y ((B)))
+              ((ran (λ z z)) ((B)))
+              (Z ((B))))
+             (apply X Y)])
+      ==> (term ((B)))]
+     [(term [((X ((A) (λ z z)))
+              (Y ((B)))
+              ((ran (λ z z)) ((C) (B)))
+              (Z ((C) (B))))
+             (apply X Y)])
+      ==> (term ((C) (B)))]
+     [(term [((X ((A) (λ z z) (λ q (C))))
+              (Y ((B)))
+              ((ran (λ z z)) ((B)))
+              ((ran (λ q (C))) ((C)))
+              (Q ((B) (C) (A) (λ r r)))
+              (Z ((B))))
+             (apply X Y)])
+      ==> (term ((C) (B)))]
+     ;; TODO test case
+
+
+    )
+  ))
+)
+
 ;; An interpretation I is a model of a conjunction of constraints `C` if, for
 ;; each constraint `se ⊆ X` it is the case that `I(se)` is defined and
 ;; `I(se) ⊆ I(X)`
@@ -1089,3 +1165,8 @@
    (⊨ IN (constr_1 ...))
    --- Models-Cons
    (⊨ IN ((se ⊆ X) constr_1 ...))])
+
+;; -----------------------------------------------------------------------------
+;; Section 3: Constructing Set Constraints
+
+
