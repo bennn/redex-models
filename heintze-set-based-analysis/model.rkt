@@ -68,9 +68,9 @@
          (c se ...)
          (apply se se)
          (case se [(c X ...) ⇒ se] [X ⇒ se])
-         (ifnotempty se se)]
+         (ifnonempty se se)]
  [constr ::= ;; set constraint
-             (se ⊆ X)]
+             (se ⊆ setvar)]
  [conj ::= ;; conjunction of set constraints
             (constr ...)]
  [sc-value ::= ;; set constraint value, equal to v-
@@ -1051,14 +1051,14 @@
    (interpretation IN (λ x e) ((λ x e)))]
   [
    (interpretation IN se_0 ())
-   --- I-ifnotempty-1
-   (interpretation IN (ifnotempty se_0 se_1) ())]
+   --- I-ifnonempty-1
+   (interpretation IN (ifnonempty se_0 se_1) ())]
   [
    (interpretation IN se_0 sc-value*_0)
    (side-condition ,(not (null? (term sc-value*_0))))
    (interpretation IN se_1 sc-value*)
-   --- I-ifnotempty-2
-   (interpretation IN (ifnotempty se_0 se_1) sc-value*)]
+   --- I-ifnonempty-2
+   (interpretation IN (ifnonempty se_0 se_1) sc-value*)]
   [
    (interpretation IN se_0 sc-value*_0)
    (where (sc-value_0 ...) ,(filter λ? (term sc-value*_0)))
@@ -1120,9 +1120,9 @@
       ==> (term ((cons (B) (B)) (cons (B) (A)) (cons (A) (B)) (cons (A) (A))))]
      [(term [() (λ x (A))])
       ==> (term ((λ x (A))))]
-     [(term [() (ifnotempty X (A))])
+     [(term [() (ifnonempty X (A))])
       ==> (term ())]
-     [(term [((X ((B) (C)))) (ifnotempty X (A))])
+     [(term [((X ((B) (C)))) (ifnonempty X (A))])
       ==> (term ((A)))]
      [(term [((X ((A)))
               ((ran (λ x (C))) ((C))))
@@ -1235,70 +1235,73 @@
 
 (define-judgment-form FL
   #:mode (▸ I I O)
-  #:contract (▸ X e (X constr))
+  #:contract (▸ X e (X conj))
   [
    (where X_1 #{var->setvar x})
    --- Var
    (▸ X_0 x (X_1 ()))]
   [
-   (▸ X_0 e_1 (X_1 constr_1))
-   (▸ X_0 e_2 (X_2 constr_2))
-   (where constr_3 ,(set-union (term constr_1) (term constr_2)))
-   (where X_3 (fresh constr_3 ())) ;; Y
-   (where X_4 (fresh constr_3 ())) ;; Y'
-   (where constr_4 (((apply X_4 X_2) ⊆ X_3)
+   (▸ X_0 e_1 (X_1 conj_1))
+   (▸ X_0 e_2 (X_2 conj_2))
+   (where conj_3 ,(set-union (term conj_1) (term conj_2)))
+   (where X_3 (fresh conj_3 ())) ;; Y
+   (where X_4 (fresh conj_3 ())) ;; Y'
+   (where conj_4 (((apply X_4 X_2) ⊆ X_3)
                     ((ifnonempty X_0 X_1) ⊆ X_4)))
    --- App
-   (▸ X_0 (e_1 e_2) (X_3 constr_4))]
+   (▸ X_0 (e_1 e_2) (X_3 conj_4))]
   [
-   (▸ X_0 e_0 (X_1 constr_1)) ...
-   (where X_2 (fresh ,(car (term (constr_1 ...))) ())) ;; Y
-   (where constr_2 (((c X_1 ...) ⊆ X_2)))
-   (where constr_3 ,(apply set-union (term constr_2) (term (constr_1 ...))))
+   (▸ X_0 e_0 (X_1 conj_1)) ...
+   (where X_2 (fresh ,(car (term (conj_1 ...))) ())) ;; Y
+   (where conj_2 (((c X_1 ...) ⊆ X_2)))
+   (where conj_3 ,(apply set-union (term conj_2) (term (conj_1 ...))))
    --- Const
-   (▸ X_0 (c e_0 ...) (X_2 constr_3))]
+   (▸ X_0 (c e_0 ...) (X_2 conj_3))]
   [
    (where X_1 #{var->setvar x})
-   (▸ X_1 e (X_2 constr_2))
-   (where X_3 (fresh constr_2 ())) ;; Y
-   (where constr_3 (((λ x e) ⊆ X_3)
+   (▸ X_1 e (X_2 conj_2))
+   (where X_3 (fresh conj_2 ())) ;; Y
+   (where conj_3 (((λ x e) ⊆ X_3)
                     (X_2 ⊆ (ran (λ e x)))))
-   (where constr_4 ,(set-union (term constr_2) (term constr_3)))
+   (where conj_4 ,(set-union (term conj_2) (term conj_3)))
    --- Abs
-   (▸ X_0 (λ x e) (X_3 constr_4))]
+   (▸ X_0 (λ x e) (X_3 conj_4))]
   [
-   (▸ X e_0 (X_0 constr_0))
-   (▸ X e_1 (X_1 constr_1))
-   (▸ X e_2 (X_2 constr_2))
-   (where X_3 (fresh constr_2 ())) ;; Y
-   (where X_4 (fresh constr_2 ())) ;; Y'
-   (where constr_3 (((case X_4 [(c #{var->setvar x_1} ...) ⇒ X_1]
+   (▸ X e_0 (X_0 conj_0))
+   (▸ X e_1 (X_1 conj_1))
+   (▸ X e_2 (X_2 conj_2))
+   (where X_3 (fresh conj_2 ())) ;; Y
+   (where X_4 (fresh conj_2 ())) ;; Y'
+   (where conj_3 (((case X_4 [(c #{var->setvar x_1} ...) ⇒ X_1]
                                [#{var->setvar x_2} ⇒  X_2]) ⊆ X_3)
                     ((ifnonempty X X_0) ⊆ X_4)))
-   (where constr_4 ,(set-union (term constr_0) (term constr_1) (term constr_2) (term constr_3)))
+   (where conj_4 ,(set-union (term conj_0)
+                             (term conj_1)
+                             (term conj_2)
+                             (term conj_3)))
    --- Case
-   (▸ X (case e_0 [(c x_1 ...) ⇒ e_1] [x_2 ⇒ e_2]) (X_3 constr_4))]
+   (▸ X (case e_0 [(c x_1 ...) ⇒ e_1] [x_2 ⇒ e_2]) (X_3 conj_4))]
   [
-   (▸ X_0 e (X_1 constr_1))
+   (▸ X_0 e (X_1 conj_1))
    (where X_2 #{var->setvar x})
-   (where constr_2 (((ifnonempty X_0 X_1) ⊆ X_2)))
-   (where constr_3 ,(set-union (term constr_1) (term constr_2)))
+   (where conj_2 (((ifnonempty X_0 X_1) ⊆ X_2)))
+   (where conj_3 ,(set-union (term conj_1) (term conj_2)))
    --- Fix
-   (▸ X_0 (fix x e) (X_2 constr_3))]
+   (▸ X_0 (fix x e) (X_2 conj_3))]
 
 )
 
 (define-metafunction FL
-  fresh : constr (X ...) -> X
-  [(fresh constr (X ...))
+  fresh : conj (X ...) -> X
+  [(fresh conj (X ...))
    ,(raise-user-error 'ohnoes)])
 
 (define-metafunction FL
-  SC : X e -> (X constr)
+  SC : X e -> (X conj)
   [(SC X_0 e)
-   (X_1 constr_2)
-   (judgment-holds (▸ X_0 e (X_1 constr_1)))
-   (where constr_2 ,(cons (term (e ⊆ X_0)) (term constr)))]
+   (X_1 conj_2)
+   (judgment-holds (▸ X_0 e (X_1 conj_1)))
+   (where conj_2 ,(cons (term (e ⊆ X_0)) (term conj)))]
   [(SC e)
    ,(raise-user-error 'SC "undefined for ~a" (term e))])
 #;
@@ -1347,3 +1350,87 @@
 ;;  `Iim = lm(C)`. Then `Iim X = ||sba(e0)}}`.
 
 ;; ... but how do I get lm(C) ???
+
+;; -----------------------------------------------------------------------------
+
+;; simplification algorithm
+
+;; TODO
+
+(define-judgment-form FL
+  #:mode (atomic I)
+  #:contract (atomic se)
+  [
+   --- A-Var
+   (atomic setvar)]
+  [
+   --- A-λ
+   (atomic (λ x e))]
+  [
+   (atomic se) ...
+   --- A-C
+   (atomic (c se ...))])
+
+(define-metafunction FL
+  atomic# : se -> boolean
+  [(atomic# se)
+   #true
+   (judgment-holds (atomic se))]
+  [(atomic# se)
+   #false])
+
+(module+ test
+  (check-apply* (λ (t) (term #{atomic# ,t}))
+   [(term (λ x (A)))
+    ==> #true]
+   [(term X)
+    ==> #true]
+   [(term (ran (λ x (A))))
+    ==> #true]
+   [(term (cons (A) (λ x (λ y (x y)))))
+    ==> #true]
+   ;; ---
+   [(term (apply X Y))
+    ==> #false]
+   [(term (cons (ifnonempty X Y) Z))
+    ==> #false]))
+
+(define-judgment-form FL
+  #:mode (explicit I)
+  #:contract (explicit constr)
+  [
+   (atomic se)
+   (side-condition ,(not (setvar? (term se))))
+   --- E
+   (explicit (se ⊆ setvar))])
+
+(module+ test
+  (test-case "explicit"
+    (check-true (judgment-holds (explicit ((λ x (A)) ⊆ Y))))
+    (check-true (judgment-holds (explicit ((cons X Y) ⊆ Z))))
+    (check-false (judgment-holds (explicit ((ifnonempty X Y) ⊆ Z))))
+    (check-false (judgment-holds (explicit (X ⊆ Y))))))
+
+(define-metafunction FL
+  explicits : conj -> conj
+  [(explicits ())
+   ()]
+  [(explicits (constr_0 constr_1 ...))
+   (constr_0 constr_2 ...)
+   (judgment-holds (explicit constr_0))
+   (where (constr_2 ...) #{explicits (constr_1 ...)})]
+  [(explicits (constr_0 constr_1 ...))
+   #{explicits (constr_1 ...)}])
+
+(module+ test
+  (test-case "explicits"
+    (check-apply* (λ (t) (term #{explicits ,t}))
+     [(term ())
+      ==> (term ())]
+     [(term ((X ⊆ Y)
+             ((λ x e) ⊆ Z)))
+      ==> (term (((λ x e) ⊆ Z)))]))
+)
+
+
+
