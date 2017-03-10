@@ -956,6 +956,11 @@
 ;;
 ;; (Cannot program this because no way to pick `ξ_0`)
 
+(define-metafunction FL
+  sba : ξ e -> (v ...)
+  [(sba ξ e)
+   ,(judgment-holds (~~> ξ e v) v)])
+
 ;; =============================================================================
 ;; Section 3: Main Result: Algorithm for computing `sba(e_0)`
 ;; - first we construct set constraints corresponding to the input term e0
@@ -1225,4 +1230,120 @@
 ;; -----------------------------------------------------------------------------
 ;; Section 3: Constructing Set Constraints
 
+;; Definition 2: let `e_0` be a closed term, then `SC(e_0)` is the pair `(X,C)`
+;;  such that `▸ e_0 : (X,C)`
 
+(define-judgment-form FL
+  #:mode (▸ I I O)
+  #:contract (▸ X e (X constr))
+  [
+   (where X_1 #{var->setvar x})
+   --- Var
+   (▸ X_0 x (X_1 ()))]
+  [
+   (▸ X_0 e_1 (X_1 constr_1))
+   (▸ X_0 e_2 (X_2 constr_2))
+   (where constr_3 ,(set-union (term constr_1) (term constr_2)))
+   (where X_3 (fresh constr_3 ())) ;; Y
+   (where X_4 (fresh constr_3 ())) ;; Y'
+   (where constr_4 (((apply X_4 X_2) ⊆ X_3)
+                    ((ifnonempty X_0 X_1) ⊆ X_4)))
+   --- App
+   (▸ X_0 (e_1 e_2) (X_3 constr_4))]
+  [
+   (▸ X_0 e_0 (X_1 constr_1)) ...
+   (where X_2 (fresh ,(car (term (constr_1 ...))) ())) ;; Y
+   (where constr_2 (((c X_1 ...) ⊆ X_2)))
+   (where constr_3 ,(apply set-union (term constr_2) (term (constr_1 ...))))
+   --- Const
+   (▸ X_0 (c e_0 ...) (X_2 constr_3))]
+  [
+   (where X_1 #{var->setvar x})
+   (▸ X_1 e (X_2 constr_2))
+   (where X_3 (fresh constr_2 ())) ;; Y
+   (where constr_3 (((λ x e) ⊆ X_3)
+                    (X_2 ⊆ (ran (λ e x)))))
+   (where constr_4 ,(set-union (term constr_2) (term constr_3)))
+   --- Abs
+   (▸ X_0 (λ x e) (X_3 constr_4))]
+  [
+   (▸ X e_0 (X_0 constr_0))
+   (▸ X e_1 (X_1 constr_1))
+   (▸ X e_2 (X_2 constr_2))
+   (where X_3 (fresh constr_2 ())) ;; Y
+   (where X_4 (fresh constr_2 ())) ;; Y'
+   (where constr_3 (((case X_4 [(c #{var->setvar x_1} ...) ⇒ X_1]
+                               [#{var->setvar x_2} ⇒  X_2]) ⊆ X_3)
+                    ((ifnonempty X X_0) ⊆ X_4)))
+   (where constr_4 ,(set-union (term constr_0) (term constr_1) (term constr_2) (term constr_3)))
+   --- Case
+   (▸ X (case e_0 [(c x_1 ...) ⇒ e_1] [x_2 ⇒ e_2]) (X_3 constr_4))]
+  [
+   (▸ X_0 e (X_1 constr_1))
+   (where X_2 #{var->setvar x})
+   (where constr_2 (((ifnonempty X_0 X_1) ⊆ X_2)))
+   (where constr_3 ,(set-union (term constr_1) (term constr_2)))
+   --- Fix
+   (▸ X_0 (fix x e) (X_2 constr_3))]
+
+)
+
+(define-metafunction FL
+  fresh : constr (X ...) -> X
+  [(fresh constr (X ...))
+   ,(raise-user-error 'ohnoes)])
+
+(define-metafunction FL
+  SC : X e -> (X constr)
+  [(SC X_0 e)
+   (X_1 constr_2)
+   (judgment-holds (▸ X_0 e (X_1 constr_1)))
+   (where constr_2 ,(cons (term (e ⊆ X_0)) (term constr)))]
+  [(SC e)
+   ,(raise-user-error 'SC "undefined for ~a" (term e))])
+#;
+(module+ test
+  (test-case "construction:heintze"
+    (let ([e1 (term (λ f (c (f (A)) (f (B)))))]
+          [e2 (term (λ x x))])
+      (define xc (term #{SC ,(e1 e2)}))
+      (define X (car xc))
+      (define C (cadr xc))
+      (define expected (term
+        (((apply X2 X3) ⊆ X1)
+         (,e1 ⊆ X2)
+         (,e2 ⊆ X3)
+         ((apply F (A)) ⊆ X4)
+         ((apply F (B)) ⊆ X5)
+         ((c X4 X5) ⊆ (ran ,e1))
+         (X ⊆ (ran ,e2)))))
+      (check-equal? (length C) (length expected))
+      (for ([t (in-list expected)])
+        (check set-member? C t))
+      ;; in `lm(C)`, X1 = ran(e1) = {c(a,b) c(b,a) c(a,a) c(b,b)}
+      ;;           , X2 = {e1}
+      ;;           , X3 = {e2}
+      ;;           , X4 = X5 = ran(e2) = Xx = {a,b}
+      (void)))
+
+  (test-case "construction:never-executed"
+    (let* ([e1 (term (λ f ((λ u (f (A))) (λ w (f (B))))))]
+           [e2 (term (λ x x))]
+           [e0 (term (,e1 ,e2))]
+           [least-ξ (term ((f ((λ x x)))
+                           (u ((λ w (f (B)))))
+                           (x ((A)))))])
+      (check-true (judgment-holds (safe ,least-ξ ,e0)))
+      (check-equal? (term #{sba ,least-ξ ,e0}) (term ((A))))
+      (define xc (term #{SC ,e0}))
+      (define x (car xc))
+      (define c (cadr xc))
+      (check-false (member (term (((A) (B)) ⊆ X)) c))
+      (void)))
+)
+
+;; -----------------------------------------------------------------------------
+;; Lemma 1: let `e_0` be a closed term, let `SC e_0` be `(X C)` and let
+;;  `Iim = lm(C)`. Then `Iim X = ||sba(e0)}}`.
+
+;; ... but how do I get lm(C) ???
