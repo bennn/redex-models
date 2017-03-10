@@ -1141,9 +1141,42 @@
               (Z ((B))))
              (apply X Y)])
       ==> (term ((C) (B)))]
-     ;; TODO test case
-
-
+     [(term [((W ((A)))
+              (X ())
+              (Y ())
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ Z])])
+      ==> (term ((C) (B) (A)))]
+     [(term [((W ((A)))
+              (X ())
+              (Y ())
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ W])])
+      ==> (term ((A)))]
+     [(term [((W ((cons (A) (A))))
+              (X ((A)))
+              (Y ((A)))
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ W])])
+      ==> (term ((A)))]
+     [(term [((W ((C) (cons (A) (A))))
+              (X ((A)))
+              (Y ((A)))
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ W])])
+      ==> (term ((cons (A) (A)) (C) (A)))]
+     [(term [((W ((cons (A) (A))))
+              (X ((cons (C) (B)) (A)))
+              (Y ((A)))
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ W])])
+      ==> (term ((cons (C) (B)) (A)))]
+     [(term [((W ((cons (A) (A))))
+              (X ((A)))
+              (Y ((A) (B) (C)))
+              (Z ((A) (B) (C))))
+             (case W [(cons X Y) ⇒ X] [Z ⇒ Z])])
+      ==> (term ((A)))]
     )
   ))
 )
