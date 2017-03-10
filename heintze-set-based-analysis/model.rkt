@@ -1035,7 +1035,7 @@
    --- I-var
    (interpretation IN setvar sc-value*)]
   [
-   (where (sc-value*_0 ...) (#{irefs IN se_0} ...))
+   (interpretation IN se_0 sc-value*_0) ...
    (where sc-value* ,(apply set-union
                        (map (λ (t) (list (cons (term c) t)))
                             (apply cartesian-product (term (sc-value*_0 ...))))))
@@ -1099,7 +1099,6 @@
 
 (module+ test
   (test-case "interpretation"
-  (parameterize ([*debug?* #t])
     (check-apply* (λ (t) (term #{interpretation# ,(car t) ,(cadr t)}))
      [(term [((X ((A) (B) (C)))) X])
       ==> (term ((A) (B) (C)))]
@@ -1108,6 +1107,9 @@
       ==> (term ((B) (C)))]
      [(term [() (A)])
       ==> (term ((A)))]
+     [(term [()
+             (cons (B) (B))])
+      ==> (term ((cons (B) (B))))]
      [(term [((X ((A) (B))))
              (cons X X)])
       ==> (term ((cons (B) (B)) (cons (B) (A)) (cons (A) (B)) (cons (A) (A))))]
@@ -1176,9 +1178,7 @@
               (Y ((A) (B) (C)))
               (Z ((A) (B) (C))))
              (case W [(cons X Y) ⇒ X] [Z ⇒ Z])])
-      ==> (term ((A)))]
-    )
-  ))
+      ==> (term ((A)))]))
 )
 
 ;; An interpretation I is a model of a conjunction of constraints `C` if, for
@@ -1186,7 +1186,7 @@
 ;; `I(se) ⊆ I(X)`
 (define-judgment-form FL
   #:mode (⊨ I I)
-  #:contract (⊨ IN C)
+  #:contract (⊨ IN conj)
   [
    --- Models-Empty
    (⊨ IN ())]
@@ -1198,6 +1198,29 @@
    (⊨ IN (constr_1 ...))
    --- Models-Cons
    (⊨ IN ((se ⊆ X) constr_1 ...))])
+
+(module+ test
+  (check-true* (λ (t) (judgment-holds (⊨ ,(car t) ,(cadr t))))
+   [(term [((W ((cons (A) (A))))
+            (X ((A)))
+            (Y ((A) (B) (C)))
+            (Z ((A) (B) (C))))
+           ()])]
+   [(term [((W ((cons (A) (A))))
+            (X ((A)))
+            (Y ((A) (B) (C)))
+            (Z ((A) (B) (C))))
+           (((A) ⊆ X))])]
+   [(term [((W ((cons (A) (A))))
+            (X ((A)))
+            (Y ((A) (B) (C)))
+            (Z ((A) (B) (C))))
+           (((A) ⊆ X)
+            ((A) ⊆ Y)
+            ((B) ⊆ Y)
+            ((C) ⊆ Y)
+            ((cons (A) (A)) ⊆ W))])])
+)
 
 ;; -----------------------------------------------------------------------------
 ;; Section 3: Constructing Set Constraints
