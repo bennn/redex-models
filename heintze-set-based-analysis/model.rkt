@@ -1432,5 +1432,50 @@
       ==> (term (((λ x e) ⊆ Z)))]))
 )
 
+(define-metafunction FL
+  simplify : conj -> conj
+  [(simplify conj_0)
+   ,(if (equal? (term conj_0) (term conj_5))
+      (term #{explicits conj_0})
+      (term conj_5))
+   (where conj_1 (simplify-apply conj_0))
+   (where conj_2 (simplify-case-then conj_1))
+   (where conj_3 (simplify-case-else conj_2))
+   (where conj_4 (simplify-ifnonempty conj_3))
+   (where conj_5 (simplify-var conj_4))])
+
+(define (simplify-apply conj)
+  (define new-conj
+    (for/fold ([acc (set)])
+              ([c (in-list conj)]
+               #:when (redex-match? FL ((apply X_1 X_2) ⊆ X)))
+      (redex-let FL ([((apply X_1 X_2) ⊆ X) c])
+        (for/fold ([acc acc])
+                  ([c (in-list conj)]
+                   #:when (redex-match? FL ((λ x e) ⊆ X_1)))
+          (set-add (set-add acc (term ((ran (λ x e)) ⊆ X)))
+                   (term (X_2 ⊆ #{var->setvar x})))))))
+  (set->list (set-union new-conj conj)))
+
+(define-metafunction FL
+  simplify-case-then : conj -> conj
+  [(simplify-case-then conj_0)
+   conj_0])
+
+(define-metafunction FL
+  simplify-case-else : conj -> conj
+  [(simplify-case-else conj_0)
+   conj_0])
+
+(define-metafunction FL
+  simplify-ifnonempty : conj -> conj
+  [(simplify-ifnonempty conj_0)
+   conj_0])
+
+(define-metafunction FL
+  simplify-var : conj -> conj
+  [(simplify-var conj_0)
+   conj_0])
 
 
+;; TODO test simplification algorithm
