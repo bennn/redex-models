@@ -22,9 +22,10 @@
   [V ::= integer (λ x E)]
   [E e ::= V x (E E) (if0 E E E)]
   [V+ ::= (integer @ l) ((λ (x @ β) E+) @ l)]
-  [E+ ::= V+ (x @ β) ((E+ E+) @ l) ((if0 E+ E+ E+) @ l) ((blame λ R) @ l)]
+  [E+ ::= V+ (x @ β) ((E+ E+) @ l) ((if0 E+ E+ E+) @ l) ((blame λ R) @ l) (E+ @ l)]
   [N ::= natural]
   [Γ ::= ((x β) ...)]
+  [CTX ::= hole ((CTX E+) @ l) ((V+ CTX) @ l) ((if0 CTX E+ E+) @ l)]
   [l β x ::= variable-not-otherwise-mentioned]
   #:binding-forms
     (λ x E #:refers-to x)
@@ -161,4 +162,51 @@
         (check Λ=? t1 (term ((((λ (x @ β0) (x @ β0)) @ l1) (3 @ l2)) @ l3)))
         (void)))))
 
+(define --->
+  (reduction-relation Λ
+    #:domain E+
+    [--> ((((λ (x @ β) E+) @ l_0) V+) @ l_2)
+         (substitute E+ x V+)
+         Subst]
+    [-->  (((integer @ l_0) V+) @ l_2)
+          ((blame λ R) @ l_2)
+          App-Error]
+    [--> ((if0 (0 @ l_0) E+_1 E+_2) @ l_3)
+         E+_1
+         If-True]
+    [--> ((if0 V+ E+_1 E+_2) @ l_3)
+         E+_2
+         (side-condition (not (zero? (car (term V+)))))
+         If-False]
+    [--> (V+ @ β_0)
+         V+
+         ;; because our substitution isn't exactly like meunier's
+         Var]))
 
+(define (--->* t)
+  (define v* (apply-reduction-relation* ---> t))
+  (cond
+   [(null? v*)
+    (raise-user-error '--->* "no result for ~a" t)]
+   [(null? (cdr v*))
+    (car v*)]
+   [else
+    (raise-user-error '--->* "multiple results ~a --->* ~a" t v*)]))
+
+(module+ test
+  (test-case "--->*:based"
+    (check-pred V+? (term ((λ (x @ β0) (x @ β0)) @ l0)))
+    (check-pred V+? (term (4 @ l1)))
+    (check-pred E+? (term ((((λ (x @ β0) (x @ β0)) @ l0) (4 @ l1)) @ l2)))
+    (check-apply* --->*
+     [(term (0 @ l0))
+      ==> (term (0 @ l0))]
+     [(term ((((λ (x @ β0) (x @ β0)) @ l0) (4 @ l1)) @ l2))
+      ==> (term (4 @ l1))]
+     [(term (((2 @ l0) (2 @ l1)) @ l2))
+      ==> (term ((blame λ R) @ l2))]
+     [(term ((if0 (0 @ l0) (1 @ l1) (2 @ l2)) @ l3))
+      ==> (term (1 @ l1))]
+     [(term ((if0 (1 @ l0) (1 @ l1) (2 @ l2)) @ l3))
+      ==> (term (2 @ l2))])
+  ))
