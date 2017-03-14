@@ -1444,11 +1444,15 @@
    (where conj_4 (simplify-ifnonempty conj_3))
    (where conj_5 (simplify-var conj_4))])
 
+;; ∀ [(apply X1 X2) ⊆ X]
+;;  ∀ [λ x e ⊆ X1]
+;;  add [ran λ x e ⊆ X]
+;;  add [X2 ⊆ Xx]
 (define (simplify-apply conj)
   (define new-conj
     (for/fold ([acc (set)])
               ([c (in-list conj)]
-               #:when (redex-match? FL ((apply X_1 X_2) ⊆ X)))
+               #:when (redex-match? FL ((apply X_1 X_2) ⊆ X) c))
       (redex-let FL ([((apply X_1 X_2) ⊆ X) c])
         (for/fold ([acc acc])
                   ([c (in-list conj)]
@@ -1457,25 +1461,59 @@
                    (term (X_2 ⊆ #{var->setvar x})))))))
   (set->list (set-union new-conj conj)))
 
+;; ∀ [(case Y0 [(c W ...) ⇒ Y1] [W ⊆ Y2]) ⊆ X]
+;;  ∀ [(c Z ...) ⊆ Y1]
+;;  such that lm(explicit(C))(Z ...) /= ()
+;;            --> compute explicit(C), remove a Z, check if model, repeat?
+;;  add Y_1 ⊆ X
+;;  add Z ... ⊆ W ...
 (define-metafunction FL
   simplify-case-then : conj -> conj
   [(simplify-case-then conj_0)
    conj_0])
 
+;; ∀ [(case Y0 [(c W ...) ⇒ Y2] [W ⇒ Y3]) ⊆ X]
+;;  ∀ [c' Z ... ⊆ Y1]
+;;  such that c /= c'
+;;  such that lm(explicit(C))(Z ...) /= ()
+;;  add Y2 ⊆ X
+;;  add (c' Z ...) ⊆ W
 (define-metafunction FL
   simplify-case-else : conj -> conj
   [(simplify-case-else conj_0)
    conj_0])
 
-(define-metafunction FL
-  simplify-ifnonempty : conj -> conj
-  [(simplify-ifnonempty conj_0)
-   conj_0])
+;; ∀ [ifnonempty Y1 Y2 ⊆ X]
+;;  such that lm(explicit(C))(Y1) /= ()
+;;  add Y2 ⊆ X
+(define (simplify-ifnonempty conj)
+  (define new-conj
+    (for/fold ([acc (set)])
+              ([c (in-list conj)]
+               #:when (redex-match? FL ((ifnonempty X_1 X_2) ⊆ X_0) c))
+      (redex-let FL ([((ifnonempty X_1 X_2) ⊆ X_0) c])
+        ;; TODO X_1 not empty
+        (set-add acc (term (X_2 ⊆ X_0))))))
+  (set->list (set-union new-conj conj)))
 
-(define-metafunction FL
-  simplify-var : conj -> conj
-  [(simplify-var conj_0)
-   conj_0])
+;; ∀ [X' ⊆ X]
+;;  ∀ [ae ⊆ X']
+;;  such that ae atomic, not set variable
+;;  add ae ⊆ X
+(define (simplify-var conj)
+  (define new-conj
+    (for/fold ([acc (set)])
+              ([c (in-list conj)]
+               #:when (redex-match? FL (X_0 ⊆ X_1) c))
+      (redex-let FL ([(X_0 ⊆ X_1) c])
+        (for/fold ([acc (set)])
+                  ([c (in-list conj)]
+                   #:when (and (redex-match? FL (se ⊆ X_0) c)
+                               (not (redex-match? FL setvar (car c)))))
+          (set-add acc (term (,(car c) ⊆ X_1)))))))
+  (set->list (set-union new-conj conj)))
 
+;; TODO can probably simplify the 'simplify' functions,
+;;  but doing things `forall` is unclear to me in redex
 
 ;; TODO test simplification algorithm
