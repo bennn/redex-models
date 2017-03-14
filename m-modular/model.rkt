@@ -363,7 +363,6 @@
 ;  [
 ;   --- LamApp
 
-
 (module+ test
   (test-case "init-constraints"
     (let* ([t0 (term ((λ x x) 3))]
@@ -400,3 +399,8 @@
       (check-equal? φ (term ()))
       (check-equal? ψ (term ((l5 ((TOP R))))))))
 )
+
+;; TODO
+;; - init constraints for app (every label needs type?)
+;; - solve constraints
+;; - reconstruct types
