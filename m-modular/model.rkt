@@ -30,7 +30,10 @@
   [SEV ::= ;; severity
            R O]
   [φ ::= ((l (l ...)) ...)]
-  [ψ ::= ((l (l SEV)) ...)]
+  [ψ ::= ((l OF*) ...)]
+  [OF ::= ;; offender
+          (l SEV)]
+  [OF* ::= (OF ...)]
   [PP ::= (φ ψ)]
   [l β x ::= variable-not-otherwise-mentioned]
   #:binding-forms
@@ -44,6 +47,8 @@
 (define E+? (redex-match? Λ E+))
 (define Γ? (redex-match? Λ Γ))
 (define N? (redex-match? Λ N))
+(define φ? (redex-match? Λ φ))
+(define ψ? (redex-match? Λ ψ))
 
 (define (Λ=? t0 t1)
   (alpha-equivalent? Λ t0 t1))
@@ -66,6 +71,9 @@
     (check-pred E+? (term ((λ (x @ β0) (x @ β0)) @ l1)))
     (check-pred E+? (term (3 @ l3)))
     (check-pred E+? (term ((((λ (x«2» @ β0) (x«2» @ β0)) @ l1) (3 @ l3)) @ l4)))
+
+    (check-pred φ? (term ()))
+    (check-pred ψ? (term ()))
 
     (check-pred N? (term 0))))
 
@@ -136,22 +144,36 @@
    (l ...)
    (where ((x_0 (l_0 ...)) ... (x (l ...)) (x_1 (l_1 ...)) ...) φ)]
   [(ref ψ x)
-   (l SEV)
-   (where ((x_0 (l_0 SEV_0)) ... (x (l SEV)) (x_1 (l_1 SEV_1)) ...) Γ)])
+   OF*
+   (where ((x_0 OF*_0) ... (x OF*) (x_1 OF*_1) ...) ψ)]
+  [(ref any_0 any_1)
+   #f])
 
+;; update :
+;;  semantics is "union"
 (define-metafunction Λ
   update : any x any -> any
   [(update any_0 x any_1)
-   ((x_2 any_2) ... (x any_1) (x_3 any_3) ...)
-   (where ((x_2 any_2) ... (x any_4) (x_3 any_3) ...) any_0)]
+   ((x_2 any_2) ... (x any_5) (x_3 any_3) ...)
+   (where ((x_2 any_2) ... (x any_4) (x_3 any_3) ...) any_0)
+   (where any_5 ,(set-union (term any_1) (term any_4)))]
   [(update any_0 x any_1)
    ((x any_1) (x_2 any_2) ...)
    (where ((x_2 any_2) ...) any_0)])
 
 (module+ test
-  (let ([Γ (term ((x β0) (y β1) (z β2)))])
+  (let ([Γ (term ((x β0) (y β1) (z β2)))]
+        [φ (term ((l0 (l3 l4))
+                  (l1 ())
+                  (l2 (l4))))]
+        [ψ (term ((l0 ((l3 R) (l4 R)))
+                  (l1 ())
+                  (l2 ((l5 R)))))])
     (test-case "redex-match:env"
-      (check-true (Γ? Γ)))
+      (check-pred Γ? Γ)
+      (check-pred φ? φ)
+      (check-pred ψ? (term ((l0 ((l3 R) (l4 R))) (l1 ()) (l2 ((l5 R))))))
+      (check-pred ψ? ψ))
     (test-case "ref"
       (check-apply* (λ (t) (term #{ref ,Γ ,t}))
        [(term x)
@@ -159,13 +181,32 @@
        [(term y)
         ==> (term β1)]
        [(term z)
-        ==> (term β2)]))
+        ==> (term β2)])
+      (check-apply* (λ (t) (term #{ref ,φ ,t}))
+       [(term l0)
+        ==> (term (l3 l4))]
+       [(term l1)
+        ==> (term ())]
+       [(term l2)
+        ==> (term (l4))])
+      (check-apply* (λ (t) (term #{ref ,ψ ,t}))
+       [(term l0)
+        ==> (term ((l3 R) (l4 R)))]
+       [(term l1)
+        ==> (term ())]
+       [(term l2)
+        ==> (term ((l5 R)))]))
     (test-case "update"
-      (check-apply* (λ (t u) (term #{update ,Γ ,t ,u}))
-       [(term x) (term β3)
-        ==> (term ((x β3) (y β1) (z β2)))]
-       [(term y) (term β3)
-        ==> (term ((x β0) (y β3) (z β2)))]))
+      (check-apply* (λ (t u) (term #{update ,φ ,t ,u}))
+       [(term l0) (term (l6))
+        ==> (term ((l0 (l4 l3 l6)) (l1 ()) (l2 (l4))))]
+       [(term l3) (term (l4))
+        ==> (term ((l3 (l4)) (l0 (l3 l4)) (l1 ()) (l2 (l4))))])
+      (check-apply* (λ (t u) (term #{update ,ψ ,t ,u}))
+       [(term l0) (term ((l1 R)))
+        ==> (term ((l0 ((l4 R) (l3 R) (l1 R))) (l1 ()) (l2 ((l5 R)))))]
+       [(term l3) (term ((l4 R)))
+        ==> (term ((l3 ((l4 R))) (l0 ((l3 R) (l4 R))) (l1 ()) (l2 ((l5 R)))))]))
 ))
 
 (define-metafunction Λ
@@ -244,23 +285,30 @@
   #:mode (init-constraints I I O)
   #:contract (init-constraints (φ ψ) E+ (φ ψ))
   [
+   (side-condition ,(debug "int"))
    (where φ_1 #{⊆ {l} (φ l)})
    --- Init-Int
    (init-constraints (φ ψ) (n @ l) (φ_1 ψ))]
   [
+   (side-condition ,(debug "lambda"))
    (where φ_1 #{⊆ {l} (φ l)})
    (init-constraints (φ_1 ψ) E+ (φ_2 ψ_2))
    --- Init-λ
-   (init-constraints (φ ψ) ((λ (x β) E+) @ l) (φ_2 ψ_2))]
+   (init-constraints (φ ψ) ((λ (x @ β) E+) @ l) (φ_2 ψ_2))]
   [
+   (side-condition ,(debug "var"))
    --- Init-Var
    (init-constraints (φ ψ) (x @ l) (φ ψ))]
   [
+   (side-condition ,(debug "app LHS ~a" (term E+_0)))
    (init-constraints (φ ψ) E+_0 (φ_0 ψ_0))
+   (side-condition ,(debug "app RATOR ~a" (term (φ_0 ψ_0))))
    (init-constraints (φ_0 ψ_0) E+_1 (φ_1 ψ_1))
+   (side-condition ,(debug "app RATOR ~a" (term (φ_1 ψ_1))))
    --- Init-App
-   (init-constraints (φ ψ) (E+_0 E+_1) (φ_1 ψ_1))]
+   (init-constraints (φ ψ) ((E+_0 E+_1) @ l) (φ_1 ψ_1))]
   [
+   (side-condition ,(debug "if"))
    (init-constraints (φ ψ) E+_0 (φ_0 ψ_0))
    (init-constraints (φ_0 ψ_0) E+_1 (φ_1 ψ_1))
    (init-constraints (φ_1 ψ_1) E+_2 (φ_2 ψ_2))
@@ -271,18 +319,37 @@
    --- Init-If
    (init-constraints (φ ψ) ((if0 E+_0 E+_1 E+_2) @ l) (φ_4 ψ_2))]
   [
-   (where ψ_1 #{⊆ ((λ R)) (ψ l)})
+   (side-condition ,(debug "blame"))
+   (where ψ_1 #{⊆ ((TOP R)) (ψ l)})
    --- Init-Blame
    (init-constraints (φ ψ) ((blame TOP R) @ l) (φ ψ_1))])
 
 (define-metafunction Λ
+  init-constraints# : E+ -> (φ ψ)
+  [(init-constraints# E+)
+   (φ ψ)
+   (side-condition (debug "init-constr ~a" (term E+)))
+   (judgment-holds (init-constraints (() ()) E+ (φ ψ)))]
+  [(init-constraints# E+)
+   ,(raise-user-error 'init-constraints "undefined for ~a" (term E+))])
+
+(define-metafunction Λ
   ⊆ : any any -> any
   [(⊆ (l_0 ...) (φ l_1))
-   #{update φ l_1 ,(set-union (term (l_0 ...)) (term (l_2 ...)))}
-   (where (l_2 ...) #{ref φ l_1})]
-  [(⊆ ((l_0 SEV_0) ...) (ψ l_1))
-   #{update ψ l_1 ,(set-union (term ((l_0 SEV_0) ...)) (term ((l_2 SEV_2) ...)))}
-   (where ((l_2 SEV_2) ...) #{ref ψ l_1})])
+   #{update φ l_1 (l_0 ...)}]
+  [(⊆ OF*_0 (ψ l_1))
+   #{update ψ l_1 OF*_0}])
+
+(module+ test
+  (test-case "⊆:based"
+    (let ([φ (term ((l0 (l1)) (l1 (l2 l3)) (l3 ())))])
+      (check-apply* (λ (t u) (term #{⊆ ,t ,u}))
+       [(term (l0)) (term (() l1))
+        ==> (term ((l1 (l0))))]
+       [(term (l0)) (term (,φ l1))
+        ==>
+        (term ((l0 (l1)) (l1 (l3 l2 l0)) (l3 ())))])))
+)
 
 ;;; ENV ⊢ source sink ⊣ ENV
 ;(define-judgment-form Λ
@@ -295,4 +362,41 @@
 ;   (simple-constraint-creation (φ_0 ψ_0) (n @ l_0) (((e_0 @ l_5) (e_1 @ l_6)) @ l_7) PP)]
 ;  [
 ;   --- LamApp
-;
+
+
+(module+ test
+  (test-case "init-constraints"
+    (let* ([t0 (term ((λ x x) 3))]
+           [t1 (term #{annotate# ,t0})]
+           [env (term #{init-constraints# ,t1})]
+           [φ (car env)]
+           [ψ (cadr env)])
+      (check-apply* (λ (lbl) (term #{ref ,φ ,lbl}))
+       [(term l1)
+        ==> (term (l1))]
+       [(term l2)
+        ==> (term (l2))])
+      (check-equal? ψ (term ())))
+    (let* ([t0 (term (if0 1 2 3))]
+           [t1 (term #{annotate# ,t0})]
+           [env (term #{init-constraints# ,t1})]
+           [φ (car env)]
+           [ψ (cadr env)])
+      (check-apply* (λ (lbl) (term #{ref ,φ ,lbl}))
+       [(term l0)
+        ==> (term (l0))]
+       [(term l1)
+        ==> (term (l1))]
+       [(term l2)
+        ==> (term (l2))]
+       [(term l3)
+        ==> (term (l1 l2))])
+        (term #{ref ,φ l1})
+      (check-equal? ψ (term ())))
+    (let* ([t1 (term ((blame TOP R) @ l5))]
+           [env (term #{init-constraints# ,t1})]
+           [φ (car env)]
+           [ψ (cadr env)])
+      (check-equal? φ (term ()))
+      (check-equal? ψ (term ((l5 ((TOP R))))))))
+)
