@@ -15,12 +15,17 @@
   [c ::= ;; Const
          basic-constants
          primitive-operations]
+  [a ::= ;; answers
+         v CHECK]
+  [E ::= ;; evaluation context
+         hole (E M) (V E)]
   [basic-constants ::= TRUE FALSE]
   [primitive-operations ::= + -]
   [x* ::= (x ...)]
   [x ::= variable-not-otherwise-mentioned]
   #:binding-forms
     (λ (x) e #:refers-to x))
+;; all functions curried, including + etc.
 
 (define e? (redex-match? Λ e))
 (define v? (redex-match? Λ v))
@@ -101,3 +106,7 @@
       ==> #t]))
 )
 
+;; TODO
+;(define --->
+;  (reduction-relation Λ
+;   [
