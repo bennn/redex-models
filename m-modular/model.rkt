@@ -19,13 +19,19 @@
 ;; Chapter 3: The Lambda Calculus
 
 (define-language Λ
-  [V ::= integer (λ x E)]
+  [n ::= integer]
+  [V ::= n (λ x E)]
   [E e ::= V x (E E) (if0 E E E)]
-  [V+ ::= (integer @ l) ((λ (x @ β) E+) @ l)]
-  [E+ ::= V+ (x @ β) ((E+ E+) @ l) ((if0 E+ E+ E+) @ l) ((blame λ R) @ l) (E+ @ l)]
+  [V+ ::= (n @ l) ((λ (x @ β) E+) @ l)]
+  [E+ ::= V+ (x @ β) ((E+ E+) @ l) ((if0 E+ E+ E+) @ l) ((blame l SEV) @ l) (E+ @ l)]
   [N ::= natural]
   [Γ ::= ((x β) ...)]
   [CTX ::= hole ((CTX E+) @ l) ((V+ CTX) @ l) ((if0 CTX E+ E+) @ l)]
+  [SEV ::= ;; severity
+           R O]
+  [φ ::= ((l (l ...)) ...)]
+  [ψ ::= ((l (l SEV)) ...)]
+  [PP ::= (φ ψ)]
   [l β x ::= variable-not-otherwise-mentioned]
   #:binding-forms
     (λ x E #:refers-to x)
@@ -88,7 +94,7 @@
    (side-condition ,(debug "INT"))
    (where (l N_1) ,(fresh-term (term N)))
    --- Int
-   (annotate N Γ integer (integer @ l) N_1)]
+   (annotate N Γ n (n @ l) N_1)]
   [
    (side-condition ,(debug "Lam"))
    (where (β_1 N_1) ,(fresh-var (term N_0)))
@@ -122,22 +128,45 @@
    (annotate N_0 Γ_0 (if0 e_0 e_1 e_2) E+_3 N_4)])
 
 (define-metafunction Λ
-  ref : Γ x -> β
+  ref : any x -> any
   [(ref Γ x)
    β
-   (where ((x_0 β_0) ... (x β) (x_1 β_1) ...) Γ)])
+   (where ((x_0 β_0) ... (x β) (x_1 β_1) ...) Γ)]
+  [(ref φ x)
+   (l ...)
+   (where ((x_0 (l_0 ...)) ... (x (l ...)) (x_1 (l_1 ...)) ...) φ)]
+  [(ref ψ x)
+   (l SEV)
+   (where ((x_0 (l_0 SEV_0)) ... (x (l SEV)) (x_1 (l_1 SEV_1)) ...) Γ)])
+
+(define-metafunction Λ
+  update : any x any -> any
+  [(update any_0 x any_1)
+   ((x_2 any_2) ... (x any_1) (x_3 any_3) ...)
+   (where ((x_2 any_2) ... (x any_4) (x_3 any_3) ...) any_0)]
+  [(update any_0 x any_1)
+   ((x any_1) (x_2 any_2) ...)
+   (where ((x_2 any_2) ...) any_0)])
 
 (module+ test
-  (test-case "ref"
-    (let ([Γ (term ((x β0) (y β1) (z β2)))])
-      (check-true (Γ? Γ))
+  (let ([Γ (term ((x β0) (y β1) (z β2)))])
+    (test-case "redex-match:env"
+      (check-true (Γ? Γ)))
+    (test-case "ref"
       (check-apply* (λ (t) (term #{ref ,Γ ,t}))
        [(term x)
         ==> (term β0)]
        [(term y)
         ==> (term β1)]
        [(term z)
-        ==> (term β2)]))))
+        ==> (term β2)]))
+    (test-case "update"
+      (check-apply* (λ (t u) (term #{update ,Γ ,t ,u}))
+       [(term x) (term β3)
+        ==> (term ((x β3) (y β1) (z β2)))]
+       [(term y) (term β3)
+        ==> (term ((x β0) (y β3) (z β2)))]))
+))
 
 (define-metafunction Λ
   [(annotate# E)
@@ -168,8 +197,8 @@
     [--> ((((λ (x @ β) E+) @ l_0) V+) @ l_2)
          (substitute E+ x V+)
          Subst]
-    [-->  (((integer @ l_0) V+) @ l_2)
-          ((blame λ R) @ l_2)
+    [-->  (((n @ l_0) V+) @ l_2)
+          ((blame TOP R) @ l_2)
           App-Error]
     [--> ((if0 (0 @ l_0) E+_1 E+_2) @ l_3)
          E+_1
@@ -204,9 +233,66 @@
      [(term ((((λ (x @ β0) (x @ β0)) @ l0) (4 @ l1)) @ l2))
       ==> (term (4 @ l1))]
      [(term (((2 @ l0) (2 @ l1)) @ l2))
-      ==> (term ((blame λ R) @ l2))]
+      ==> (term ((blame TOP R) @ l2))]
      [(term ((if0 (0 @ l0) (1 @ l1) (2 @ l2)) @ l3))
       ==> (term (1 @ l1))]
      [(term ((if0 (1 @ l0) (1 @ l1) (2 @ l2)) @ l3))
       ==> (term (2 @ l2))])
   ))
+
+(define-judgment-form Λ
+  #:mode (init-constraints I I O)
+  #:contract (init-constraints (φ ψ) E+ (φ ψ))
+  [
+   (where φ_1 #{⊆ {l} (φ l)})
+   --- Init-Int
+   (init-constraints (φ ψ) (n @ l) (φ_1 ψ))]
+  [
+   (where φ_1 #{⊆ {l} (φ l)})
+   (init-constraints (φ_1 ψ) E+ (φ_2 ψ_2))
+   --- Init-λ
+   (init-constraints (φ ψ) ((λ (x β) E+) @ l) (φ_2 ψ_2))]
+  [
+   --- Init-Var
+   (init-constraints (φ ψ) (x @ l) (φ ψ))]
+  [
+   (init-constraints (φ ψ) E+_0 (φ_0 ψ_0))
+   (init-constraints (φ_0 ψ_0) E+_1 (φ_1 ψ_1))
+   --- Init-App
+   (init-constraints (φ ψ) (E+_0 E+_1) (φ_1 ψ_1))]
+  [
+   (init-constraints (φ ψ) E+_0 (φ_0 ψ_0))
+   (init-constraints (φ_0 ψ_0) E+_1 (φ_1 ψ_1))
+   (init-constraints (φ_1 ψ_1) E+_2 (φ_2 ψ_2))
+   (where (any_1 @ l_1) E+_1)
+   (where (any_2 @ l_2) E+_2)
+   (where φ_3 #{⊆ #{ref φ_2 l_1} (φ_2 l)})
+   (where φ_4 #{⊆ #{ref φ_3 l_2} (φ_3 l)})
+   --- Init-If
+   (init-constraints (φ ψ) ((if0 E+_0 E+_1 E+_2) @ l) (φ_4 ψ_2))]
+  [
+   (where ψ_1 #{⊆ ((λ R)) (ψ l)})
+   --- Init-Blame
+   (init-constraints (φ ψ) ((blame TOP R) @ l) (φ ψ_1))])
+
+(define-metafunction Λ
+  ⊆ : any any -> any
+  [(⊆ (l_0 ...) (φ l_1))
+   #{update φ l_1 ,(set-union (term (l_0 ...)) (term (l_2 ...)))}
+   (where (l_2 ...) #{ref φ l_1})]
+  [(⊆ ((l_0 SEV_0) ...) (ψ l_1))
+   #{update ψ l_1 ,(set-union (term ((l_0 SEV_0) ...)) (term ((l_2 SEV_2) ...)))}
+   (where ((l_2 SEV_2) ...) #{ref ψ l_1})])
+
+;;; ENV ⊢ source sink ⊣ ENV
+;(define-judgment-form Λ
+;  #:mode (simple-constraint-creation I I I O)
+;  #:contract (simple-constraint-creation (φ ψ) E+ E+ (φ ψ))
+;  [
+;   ;; if l_0 in l_5 add error to ψ l_7
+;   (where PP TODO)
+;   --- IntApp
+;   (simple-constraint-creation (φ_0 ψ_0) (n @ l_0) (((e_0 @ l_5) (e_1 @ l_6)) @ l_7) PP)]
+;  [
+;   --- LamApp
+;
