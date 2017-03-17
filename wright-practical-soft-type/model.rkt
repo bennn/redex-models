@@ -20,8 +20,8 @@
          v CHECK]
   [E ::= ;; evaluation context
          hole (E e) (v E)]
-  [basic-constants ::= TRUE FALSE]
-  [primitive-operations ::= + - not]
+  [basic-constants ::= integer TRUE FALSE]
+  [primitive-operations ::= + - * / add1 not]
   [x* ::= (x ...)]
   [x ::= variable-not-otherwise-mentioned]
   #:binding-forms
@@ -35,7 +35,10 @@
 (module+ test
   (test-case "rwdex-match"
     (check-pred e? (term (not TRUE)))
+
     (check-pred c? (term not))
+    (check-pred c? (term 42))
+
     (check-pred v? (term TRUE))))
 
 (define (Λ=? t0 t1)
@@ -121,6 +124,8 @@
    TRUE]
   [(δ not v)
    CHECK]
+  [(δ add1 integer)
+   ,(+ 1 (term integer))]
   [(δ c v)
    ,(raise-user-error 'δ "undefined for ~a ~a" (term c) (term v))])
 
@@ -134,7 +139,10 @@
       (term TRUE))
     (check-equal?
       (term #{δ not (λ (x) TRUE)})
-      (term CHECK))))
+      (term CHECK))
+    (check-equal?
+      (term #{δ add1 5})
+      (term 6))))
 
 (define --->
   (reduction-relation Λ
@@ -165,6 +173,10 @@
      [(term (not FALSE))
       ==> (term TRUE)]
      [(term (not (λ (x) TRUE)))
-      ==> (term CHECK)])
+      ==> (term CHECK)]
+     [(term (add1 (add1 0)))
+      ==> (term 2)])
   )
 )
+
+
