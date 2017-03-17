@@ -1,6 +1,7 @@
 #lang mf-apply racket/base
 
 (require
+  "../utils.rkt"
   racket/set
   redex/reduction-semantics)
 
@@ -253,15 +254,8 @@
          ;; because our substitution isn't exactly like meunier's
          Var]))
 
-(define (--->* t)
-  (define v* (apply-reduction-relation* ---> t))
-  (cond
-   [(null? v*)
-    (raise-user-error '--->* "no result for ~a" t)]
-   [(null? (cdr v*))
-    (car v*)]
-   [else
-    (raise-user-error '--->* "multiple results ~a --->* ~a" t v*)]))
+(define --->*
+  (reflexive-transitive-closure/deterministic --->))
 
 (module+ test
   (test-case "--->*:based"
