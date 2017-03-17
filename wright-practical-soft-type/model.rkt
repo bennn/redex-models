@@ -22,7 +22,12 @@
          hole (E e) (v E)]
   [basic-constants ::= integer TRUE FALSE]
   [primitive-operations ::= + - * / add1 not]
+  ;; --- Section 2.3
+  [τ ::= bool num (→ τ τ)]
+  [A ::= ((x τ) ...)]
+  ;; 
   [x* ::= (x ...)]
+  [τ* ::= (τ ...)]
   [x ::= variable-not-otherwise-mentioned]
   #:binding-forms
     (λ (x) e #:refers-to x))
@@ -178,5 +183,95 @@
       ==> (term 2)])
   )
 )
+
+(define-metafunction Λ
+  eval : e -> a
+  [(eval e)
+   a
+   (where a ,(--->* (term e)))])
+
+;; "We say that a programming language that prevents programs from becoming
+;;   stuck is _type safe_"
+
+(define-metafunction Λ
+  A-add : A [x ↦ τ] -> A
+  [(A-add A [x ↦ τ])
+   ((x_0 τ_0) ... (x τ) (x_2 τ_2) ...)
+   (where ((x_0 τ_0) ... (x τ_1) (x_2 τ_2) ...) A)]
+  [(A-add A [x ↦ τ])
+   ,(cons (term (x τ)) (term A))])
+
+(define-metafunction Λ
+  A-ref : A x -> τ
+  [(A-ref A x)
+   τ
+   (where ((x_0 τ_0) ... (x τ) (x_1 τ_1) ...) A)])
+
+(module+ test
+  (test-case "A-add"
+    (let ([A0 (term ())]
+          [A1 (term ((a num)))]
+          [A2 (term ((b (→ num num)) (a num)))]
+          [A3 (term ((b (→ num num)) (a bool)))])
+      (check-equal?
+        (term #{A-add ,A0 [a ↦ num]})
+        A1)
+      (check-equal?
+        (term #{A-add ,A1 [b ↦ (→ num num)]})
+        A2)
+      (check-equal?
+        (term #{A-add ,A2 [a ↦ bool]})
+        A3)
+      (check-apply* (λ (t) (term #{A-ref ,A3 ,t}))
+       [(term b)
+        ==> (term (→ num num))]
+       [(term a)
+        ==> (term bool)]))))
+
+(define-metafunction Λ
+  typeOf : c -> τ
+  [(typeOf integer)
+   num]
+  [(typeOf TRUE)
+   bool]
+  [(typeOf FALSE)
+   bool])
+
+(module+ test
+  (test-case "typeOf"
+    (check-apply* (λ (t) (term #{typeOf ,t}))
+     [(term 1)
+      ==> (term num)]
+     [(term 2)
+      ==> (term num)]
+     [(term TRUE)
+      ==> (term bool)]
+     [(term FALSE)
+      ==> (term bool)])))
+
+;(define-judgment-form Λ
+;  #:mode (static-typing I I I)
+;  #:contract (static-typing A e τ*)
+;  [
+;   (where τ_0 #{typeOf c})
+;   --- const
+;   (static-typing A c (τ_0))]
+;  [
+;   (where τ_0 #{A-ref A x})
+;   --- id
+;   (static-typing A x (τ_0))]
+;  [
+;   (static-typing #{A-add A [x ↦ τ_0]} e (τ_1 τ_2 ...))
+;   --- lam
+;   (static-typing A (λ (x) e) ((→ τ_0 τ_1) τ_2 ...))]
+;  [
+;   (static-typing A e_0 ((→ τ_1 τ_0) ???))
+;   (static-typing A e_1 (τ_1 ???))
+;   --- ap
+;   (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2...)])
+;; funny same problem
+;; not easy to do (static-typing Λ e τ*), unclear how to "split" stack
+;;  I guess can return unused part but its gonna be hard to build stacks
+
 
 
