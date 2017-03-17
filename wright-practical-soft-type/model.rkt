@@ -1,6 +1,7 @@
 #lang mf-apply racket/base
 
 (require
+  "../utils.rkt"
   racket/set
   redex/reduction-semantics)
 
@@ -18,9 +19,9 @@
   [a ::= ;; answers
          v CHECK]
   [E ::= ;; evaluation context
-         hole (E M) (V E)]
+         hole (E e) (v E)]
   [basic-constants ::= TRUE FALSE]
-  [primitive-operations ::= + -]
+  [primitive-operations ::= + - not]
   [x* ::= (x ...)]
   [x ::= variable-not-otherwise-mentioned]
   #:binding-forms
@@ -30,6 +31,12 @@
 (define e? (redex-match? Λ e))
 (define v? (redex-match? Λ v))
 (define c? (redex-match? Λ c))
+
+(module+ test
+  (test-case "rwdex-match"
+    (check-pred e? (term (not TRUE)))
+    (check-pred c? (term not))
+    (check-pred v? (term TRUE))))
 
 (define (Λ=? t0 t1)
   (alpha-equivalent? Λ t0 t1))
@@ -106,7 +113,58 @@
       ==> #t]))
 )
 
-;; TODO
-;(define --->
-;  (reduction-relation Λ
-;   [
+(define-metafunction Λ
+  δ : c v -> a
+  [(δ not TRUE)
+   FALSE]
+  [(δ not FALSE)
+   TRUE]
+  [(δ not v)
+   CHECK]
+  [(δ c v)
+   ,(raise-user-error 'δ "undefined for ~a ~a" (term c) (term v))])
+
+(module+ test
+  (test-case "δ"
+    (check-equal?
+      (term #{δ not TRUE})
+      (term FALSE))
+    (check-equal?
+      (term #{δ not FALSE})
+      (term TRUE))
+    (check-equal?
+      (term #{δ not (λ (x) TRUE)})
+      (term CHECK))))
+
+(define --->
+  (reduction-relation Λ
+   [--> (in-hole E ((λ (x) e) v))
+        (in-hole E (substitute e x v))
+        βv]
+   [--> (in-hole E (c v_0))
+        (in-hole E v_1)
+        (where v_1 #{δ c v_0})
+        δ_1]
+   [--> (in-hole E (c v_0))
+        CHECK
+        (where CHECK #{δ c v_0})
+        δ_2]))
+
+(define --->*
+  (reflexive-transitive-closure/deterministic --->))
+
+(module+ test
+  (test-case "--->"
+    (check-apply* --->*
+     [(term ((λ (x) TRUE) FALSE))
+      ==> (term TRUE)]
+     [(term ((λ (x) x) FALSE))
+      ==> (term FALSE)]
+     [(term (not TRUE))
+      ==> (term FALSE)]
+     [(term (not FALSE))
+      ==> (term TRUE)]
+     [(term (not (λ (x) TRUE)))
+      ==> (term CHECK)])
+  )
+)
