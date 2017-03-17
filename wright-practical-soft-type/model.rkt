@@ -235,7 +235,9 @@
   [(typeOf TRUE)
    bool]
   [(typeOf FALSE)
-   bool])
+   bool]
+  [(typeOf add1)
+   (→ num num)])
 
 (module+ test
   (test-case "typeOf"
@@ -247,31 +249,48 @@
      [(term TRUE)
       ==> (term bool)]
      [(term FALSE)
-      ==> (term bool)])))
+      ==> (term bool)]
+     [(term add1)
+      ==> (term (→ num num))])))
 
-;(define-judgment-form Λ
-;  #:mode (static-typing I I I)
-;  #:contract (static-typing A e τ*)
-;  [
-;   (where τ_0 #{typeOf c})
-;   --- const
-;   (static-typing A c (τ_0))]
-;  [
-;   (where τ_0 #{A-ref A x})
-;   --- id
-;   (static-typing A x (τ_0))]
-;  [
-;   (static-typing #{A-add A [x ↦ τ_0]} e (τ_1 τ_2 ...))
-;   --- lam
-;   (static-typing A (λ (x) e) ((→ τ_0 τ_1) τ_2 ...))]
-;  [
-;   (static-typing A e_0 ((→ τ_1 τ_0) ???))
-;   (static-typing A e_1 (τ_1 ???))
-;   --- ap
-;   (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2...)])
-;; funny same problem
-;; not easy to do (static-typing Λ e τ*), unclear how to "split" stack
-;;  I guess can return unused part but its gonna be hard to build stacks
+;; Lame-O
+;; Rules require a stack of goal types
+;;  and return the unused part of the stack
+(define-judgment-form Λ
+  #:mode (static-typing I I I O)
+  #:contract (static-typing A e τ* τ*)
+  [
+   (where τ_0 #{typeOf c})
+   --- const
+   (static-typing A c (τ_0 τ_1 ...) (τ_1 ...))]
+  [
+   (where τ_0 #{A-ref A x})
+   --- id
+   (static-typing A x (τ_0 τ_1 ...) (τ_1 ...))]
+  [
+   (static-typing #{A-add A [x ↦ τ_0]} e (τ_1 τ_2 ...) (τ_3 ...))
+   --- lam
+   (static-typing A (λ (x) e) ((→ τ_0 τ_1) τ_2 ...) (τ_3 ...))]
+  [
+   (static-typing A e_0 ((→ τ_1 τ_0) τ_2 ...) (τ_3 ...))
+   (static-typing A e_1 (τ_1 τ_3 ...) (τ_4 ...))
+   --- ap
+   (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2 ...) (τ_4 ...))])
 
+(define-metafunction Λ
+  static-typing# : e τ* -> boolean
+  [(static-typing# e τ*)
+   #true
+   (judgment-holds (static-typing () e τ* ()))]
+  [(static-typing# e τ*)
+   ,(raise-user-error 'static-typing "unused types ~a" (term τ*_1))
+   (judgment-holds (static-typing () e τ* τ*_1))]
+  [(static-typing# e τ*)
+   ,(raise-user-error 'static-typing "undefined for ~a" (term e) (term τ*))])
 
+(module+ test
+  (test-case "static-typing"
+    (let ([e (term ((λ (x) (add1 x)) 0))]
+          [τ* (term (num num num))])
+      (check-true (term #{static-typing# ,e ,τ*})))))
 
