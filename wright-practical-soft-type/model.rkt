@@ -11,19 +11,19 @@
 ;; =============================================================================
 
 (define-language Λ
-  [e ::= v (e e)]
-  [v ::= c x (λ (x) e)]
+  [e ::= v (e e) (one e e)]
+  [v ::= c x (λ (x) e) (one v v)]
   [c ::= ;; Const
          basic-constants
          primitive-operations]
   [a ::= ;; answers
          v CHECK]
   [E ::= ;; evaluation context
-         hole (E e) (v E)]
-  [basic-constants ::= integer TRUE FALSE]
-  [primitive-operations ::= + - * / add1 not]
+         hole (E e) (v E) (one E e) (one v E)]
+  [basic-constants ::= integer TRUE FALSE none one]
+  [primitive-operations ::= + - * / add1 not first rest]
   ;; --- Section 2.3
-  [τ ::= bool num (→ τ τ)]
+  [τ ::= bool num (→ τ τ) list-of-num]
   [A ::= ((x τ) ...)]
   ;; 
   [x* ::= (x ...)]
@@ -40,6 +40,7 @@
 (module+ test
   (test-case "rwdex-match"
     (check-pred e? (term (not TRUE)))
+    (check-pred e? (term TRUE))
 
     (check-pred c? (term not))
     (check-pred c? (term 42))
@@ -122,7 +123,7 @@
 )
 
 (define-metafunction Λ
-  δ : c v -> a
+  δ : c v -> any
   [(δ not TRUE)
    FALSE]
   [(δ not FALSE)
@@ -131,8 +132,22 @@
    CHECK]
   [(δ add1 integer)
    ,(+ 1 (term integer))]
+  [(δ add1 v)
+   CHECK]
+  [(δ first (one v_0 v_1))
+   v_0]
+  [(δ first none)
+   ;; Section 2.3.1 : typeability does not require that first/rest are defined
+   ;;  for values outside their domain
+   CHECK]
+  [(δ rest (one v_0 v_1))
+   v_1]
+  [(δ rest none)
+   CHECK]
   [(δ c v)
-   ,(raise-user-error 'δ "undefined for ~a ~a" (term c) (term v))])
+   ;; aka, "untypable" Section 2.3
+   UNDEFINED])
+   ;;,(raise-user-error 'δ "undefined for ~a ~a" (term c) (term v))])
 
 (module+ test
   (test-case "δ"
@@ -147,7 +162,19 @@
       (term CHECK))
     (check-equal?
       (term #{δ add1 5})
-      (term 6))))
+      (term 6))
+    (check-equal?
+      (term #{δ first (one 1 none)})
+      (term 1))
+    (check-equal?
+      (term #{δ first 4})
+      (term UNDEFINED))
+    (check-equal?
+      (term #{δ rest (one 1 none)})
+      (term none))
+    (check-equal?
+      (term #{δ rest none})
+      (term CHECK))))
 
 (define --->
   (reduction-relation Λ
@@ -180,8 +207,11 @@
      [(term (not (λ (x) TRUE)))
       ==> (term CHECK)]
      [(term (add1 (add1 0)))
-      ==> (term 2)])
-  )
+      ==> (term 2)]
+     [(term (rest (one 5 none)))
+      ==> (term none)]
+     [(term (one (add1 0) (one (add1 1) none)))
+      ==> (term (one 1 (one 2 none)))]))
 )
 
 (define-metafunction Λ
@@ -237,7 +267,13 @@
   [(typeOf FALSE)
    bool]
   [(typeOf add1)
-   (→ num num)])
+   (→ num num)]
+  [(typeOf none)
+   list-of-num]
+  [(typeOf first)
+   (→ list-of-num num)]
+  [(typeOf rest)
+   (→ list-of-num list-of-num)])
 
 (module+ test
   (test-case "typeOf"
@@ -275,7 +311,12 @@
    (static-typing A e_0 ((→ τ_1 τ_0) τ_2 ...) (τ_3 ...))
    (static-typing A e_1 (τ_1 τ_3 ...) (τ_4 ...))
    --- ap
-   (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2 ...) (τ_4 ...))])
+   (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2 ...) (τ_4 ...))]
+  [
+   (static-typing A e_0 (num τ_0 ...) (τ_1 ...))
+   (static-typing A e_1 (list-of-num τ_1 ...) (τ_2 ...))
+   --- one
+   (static-typing A (one e_0 e_1) (list-of-num τ_0 ...) (τ_2 ...))])
 
 (define-metafunction Λ
   static-typing# : e τ* -> boolean
@@ -286,11 +327,59 @@
    ,(raise-user-error 'static-typing "unused types ~a" (term τ*_1))
    (judgment-holds (static-typing () e τ* τ*_1))]
   [(static-typing# e τ*)
-   ,(raise-user-error 'static-typing "undefined for ~a" (term e) (term τ*))])
+   #false])
+   ;;,(raise-user-error 'static-typing "undefined for ~a ~a" (term e) (term τ*))])
 
 (module+ test
   (test-case "static-typing"
     (let ([e (term ((λ (x) (add1 x)) 0))]
           [τ* (term (num num num))])
-      (check-true (term #{static-typing# ,e ,τ*})))))
+      (check-true (term #{static-typing# ,e ,τ*})))
+    (check-false
+      (term #{static-typing# (1 2) (num num)}))
+    (check-true
+      (term #{static-typing#
+        (λ (x) (first (rest x)))
+        ((→ list-of-num num) list-of-num list-of-num)}))
+    (check-true
+      (term #{static-typing#
+        ((λ (x) (first (rest x)))
+         none)
+        (num list-of-num list-of-num list-of-num)}))
+      ))
+
+;; "This condition requires that for a typable application `(c v)`,
+;;  `δ(c,v)` must be defined and yield either a value of the result type of `c`
+;;  or a **check**"
+;;
+;; Not sure when we'll use this (in --->* ?), so it's simple for now
+(define-judgment-form Λ
+  #:mode (typeable I)
+  #:contract (typeable e)
+  [
+   (where (→ τ_0 τ_1) #{typeOf c})
+   (where #true #{static-typing# v (τ_0)})
+   (where v_1 #{δ c v})
+   (where #true #{static-typing# v_1 (τ_1)})
+   --- i
+   (typeable (c v))]
+  [
+   (where (→ τ_0 τ_1) #{typeOf c})
+   (where #true #{static-typing# v (τ_0)})
+   (where CHECK #{δ c v})
+   --- ii
+   (typeable (c v))])
+
+(module+ test
+  (test-case "typeable"
+    (check-true* (λ (t) (judgment-holds (typeable ,t)))
+     [(term (add1 3))]
+     [(term (first (one 1 none)))]
+     [(term (first none))])
+
+    (check-false* (λ (t) (judgment-holds (typeable ,t)))
+     [(term (add1 TRUE))]
+     [(term (TRUE TRUE))]
+     [(term (first 3))])))
+
 
