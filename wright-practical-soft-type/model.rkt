@@ -23,12 +23,14 @@
   [basic-constants ::= integer TRUE FALSE none one]
   [primitive-operations ::= + - * / add1 not first rest]
   ;; --- Section 2.3
-  [τ ::= bool num (→ τ τ) list-of-num]
+  [τ ::= bool num (→ τ τ) listof-num (listof τ) α]
+  [Σ ::= (∀ α* τ)]
   [A ::= ((x τ) ...)]
   ;; 
+  [α* ::= (α ...)]
   [x* ::= (x ...)]
   [τ* ::= (τ ...)]
-  [x ::= variable-not-otherwise-mentioned]
+  [x α ::= variable-not-otherwise-mentioned]
   #:binding-forms
     (λ (x) e #:refers-to x))
 ;; all functions curried, including + etc.
@@ -269,11 +271,11 @@
   [(typeOf add1)
    (→ num num)]
   [(typeOf none)
-   list-of-num]
+   listof-num]
   [(typeOf first)
-   (→ list-of-num num)]
+   (→ listof-num num)]
   [(typeOf rest)
-   (→ list-of-num list-of-num)])
+   (→ listof-num listof-num)])
 
 (module+ test
   (test-case "typeOf"
@@ -314,9 +316,9 @@
    (static-typing A (e_0 e_1) (τ_0 τ_1 τ_2 ...) (τ_4 ...))]
   [
    (static-typing A e_0 (num τ_0 ...) (τ_1 ...))
-   (static-typing A e_1 (list-of-num τ_1 ...) (τ_2 ...))
+   (static-typing A e_1 (listof-num τ_1 ...) (τ_2 ...))
    --- one
-   (static-typing A (one e_0 e_1) (list-of-num τ_0 ...) (τ_2 ...))])
+   (static-typing A (one e_0 e_1) (listof-num τ_0 ...) (τ_2 ...))])
 
 (define-metafunction Λ
   static-typing# : e τ* -> boolean
@@ -340,12 +342,12 @@
     (check-true
       (term #{static-typing#
         (λ (x) (first (rest x)))
-        ((→ list-of-num num) list-of-num list-of-num)}))
+        ((→ listof-num num) listof-num listof-num)}))
     (check-true
       (term #{static-typing#
         ((λ (x) (first (rest x)))
          none)
-        (num list-of-num list-of-num list-of-num)}))
+        (num listof-num listof-num listof-num)}))
       ))
 
 ;; "This condition requires that for a typable application `(c v)`,
@@ -382,4 +384,59 @@
      [(term (TRUE TRUE))]
      [(term (first 3))])))
 
+(define-judgment-form Λ
+  #:mode (FV I O)
+  [
+   (FV τ α*_1)
+   (where α*_2 ,(set-subtract (term α*_1) (term α*_0)))
+   --- Σ
+   (FV (∀ α*_0 τ) α*_2)]
+  [
+   (FV τ_0 (α_0 ...))
+   (FV τ_1 (α_1 ...))
+   --- →
+   (FV (→ τ_0 τ_1) (α_0 ... α_1 ...))]
+  [
+   --- bool
+   (FV bool ())]
+  [
+   --- num
+   (FV num ())]
+  [
+   --- listof-num
+   (FV listof-num ())]
+  [
+   (FV τ α*)
+   --- listof
+   (FV (listof τ) α*)]
+  [
+   --- α
+   (FV α (α))])
+
+(define-metafunction Λ
+  FV# : any -> α*
+  [(FV# Σ)
+   α*
+   (judgment-holds (FV Σ α*))]
+  [(FV# τ)
+   α*
+   (judgment-holds (FV τ α*))]
+  [(FV# Σ)
+   ,(raise-user-error 'FV "undefined for ~a" (term Σ))])
+
+(module+ test
+  (test-case "FV"
+    (check-apply* (λ (t) (term #{FV# ,t}))
+     [(term num)
+      ==> (term ())]
+     [(term (∀ () num))
+      ==> (term ())]
+     [(term (∀ (α) (listof α)))
+      ==> (term ())]
+     [(term (listof α))
+      ==> (term (α))]
+     [(term (→ α β))
+      ==> (term (α β))]
+     [(term (∀ (α) (→ α β)))
+      ==> (term (β))])))
 
