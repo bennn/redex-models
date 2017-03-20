@@ -23,9 +23,13 @@
   [basic-constants ::= integer TRUE FALSE none one]
   [primitive-operations ::= + - * / add1 not first rest]
   ;; --- Section 2.3
-  [τ ::= bool num (→ τ τ) listof-num (listof τ) α]
-  [Σ ::= (∀ α* τ)]
+  [τ ::= τ-base (→ τ τ) (listof τ) α]
+  [τ-base ::= bool num listof-num]
+  [Σ ::= ;; type scheme
+         (∀ α* τ)]
   [A ::= ((x τ) ...)]
+  [S ::= ;; substitution
+         ((α τ) ...)]
   ;; 
   [α* ::= (α ...)]
   [x* ::= (x ...)]
@@ -38,8 +42,12 @@
 (define e? (redex-match? Λ e))
 (define v? (redex-match? Λ v))
 (define c? (redex-match? Λ c))
+(define τ? (redex-match? Λ τ))
+(define Σ? (redex-match? Λ Σ))
 
 (module+ test
+  (define t-sort (term (∀ (α) (→ (listof α) (→ (→ α (→ α bool)) (listof α))))))
+
   (test-case "rwdex-match"
     (check-pred e? (term (not TRUE)))
     (check-pred e? (term TRUE))
@@ -47,7 +55,12 @@
     (check-pred c? (term not))
     (check-pred c? (term 42))
 
-    (check-pred v? (term TRUE))))
+    (check-pred v? (term TRUE))
+
+    (check-pred τ? (term (listof α)))
+    (check-pred τ? (term (→ α (→ α bool))))
+
+    (check-pred Σ? t-sort)))
 
 (define (Λ=? t0 t1)
   (alpha-equivalent? Λ t0 t1))
@@ -397,14 +410,8 @@
    --- →
    (FV (→ τ_0 τ_1) (α_0 ... α_1 ...))]
   [
-   --- bool
-   (FV bool ())]
-  [
-   --- num
-   (FV num ())]
-  [
-   --- listof-num
-   (FV listof-num ())]
+   --- τ-base
+   (FV τ-base ())]
   [
    (FV τ α*)
    --- listof
@@ -438,5 +445,84 @@
      [(term (→ α β))
       ==> (term (α β))]
      [(term (∀ (α) (→ α β)))
-      ==> (term (β))])))
+      ==> (term (β))]
+     [t-sort
+      ==> (term ())])))
 
+(define-metafunction Λ
+  S-ref : S α -> τ
+  [(S-ref S x)
+   τ
+   (where ((x_0 τ_0) ... (x τ) (x_1 τ_1) ...) S)]
+  [(S-ref S x)
+   x])
+
+(define-judgment-form Λ
+  #:mode (tsubst I I O)
+  #:contract (tsubst τ S τ)
+  [
+   --- τ-base
+   (tsubst τ-base S τ-base)]
+  [
+   (tsubst τ_0 S τ_2)
+   (tsubst τ_1 S τ_3)
+   --- →
+   (tsubst (→ τ_0 τ_1) S (→ τ_2 τ_3))]
+  [
+   (tsubst τ_0 S τ_1)
+   --- listof
+   (tsubst (listof τ_0) S (listof τ_1))]
+  [
+   ;; NOTE: [τ = α] if unbound in S
+   (where τ #{S-ref S α})
+   --- α
+   (tsubst α S τ)])
+
+(define-metafunction Λ
+  tsubst# : τ S -> τ
+  [(tsubst# τ S)
+   τ_1
+   (judgment-holds (tsubst τ S τ_1))]
+  [(tsubst# τ S)
+   ,(raise-user-error 'tsubst "undefined for ~a" (term τ) (term S))])
+
+(module+ test
+  (test-case "tsubst"
+    (let ([S (term ((α num) (β bool) (γ (→ listof-num num)) (d num)))])
+      (check-apply* (λ (t) (term #{tsubst# ,t ,S}))
+       [(term num)
+        ==> (term num)]
+       [(term (→ num listof-num))
+        ==> (term (→ num listof-num))]
+       [(term (→ α num))
+        ==> (term (→ num num))]
+       [(term (→ β γ))
+        ==> (term (→ bool (→ listof-num num)))]))))
+
+(define-metafunction Λ
+  S-dom : S -> α*
+  [(S-dom S)
+   (α ...)
+   (where ((α τ) ...) S)])
+
+(define-judgment-form Λ
+  #:mode (instance I I I)
+  #:contract (instance τ S Σ)
+  [
+   (where #true ,(set=? (term α*) (term #{S-dom S})))
+   (tsubst τ_1 S τ_0)
+   ---
+   (instance τ_0 S (∀ α* τ_1))])
+
+(module+ test
+  (test-case "instance"
+    (check-true (judgment-holds
+      (instance num () (∀ () num))))
+    (check-true (judgment-holds
+      (instance (→ num num) ((α num)) (∀ (α) (→ α α)))))
+    (check-false (judgment-holds
+      (instance num ((α num)) (∀ (α) (→ α α)))))
+    (check-false (judgment-holds
+      (instance (→ num num) () (∀ (α) (→ α α)))))
+    (check-false (judgment-holds
+      (instance (→ num num) ((α num) (β num)) (∀ (α) (→ α α)))))))
