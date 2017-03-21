@@ -8,10 +8,14 @@
 (module+ test
   (require rackunit rackunit-abbrevs))
 
+(define *debug* (make-parameter #f))
+(define (debug msg . arg*)
+  (when (*debug*) (printf "[DEBUG] ") (apply printf msg arg*) (newline)))
+
 ;; =============================================================================
 
 (define-language Λ
-  [e ::= v (e e) (one e e)]
+  [e ::= v (e e) (one e e) (let ([x e]) e)]
   [v ::= c x (λ (x) e) (one v v)]
   [c ::= ;; Const
          basic-constants
@@ -19,24 +23,26 @@
   [a ::= ;; answers
          v CHECK]
   [E ::= ;; evaluation context
-         hole (E e) (v E) (one E e) (one v E)]
+         hole (E e) (v E) (one E e) (one v E) (let ([x E]) e)]
   [basic-constants ::= integer TRUE FALSE none one]
   [primitive-operations ::= + - * / add1 not first rest]
   ;; --- Section 2.3
   [τ ::= τ-base (→ τ τ) (listof τ) α]
   [τ-base ::= bool num listof-num]
   [Σ ::= ;; type scheme
-         (∀ α* τ)]
-  [A ::= ((x τ) ...)]
+         (∀ α* τ) τ]
+  [A ::= ((x Σ) ...)]
   [S ::= ;; substitution
          ((α τ) ...)]
   ;; 
   [α* ::= (α ...)]
   [x* ::= (x ...)]
   [τ* ::= (τ ...)]
+  [Σ* ::= (Σ ...)]
   [x α ::= variable-not-otherwise-mentioned]
   #:binding-forms
-    (λ (x) e #:refers-to x))
+    (λ (x) e #:refers-to x)
+    (let ([x e_0]) e_1 #:refers-to x))
 ;; all functions curried, including + etc.
 
 (define e? (redex-match? Λ e))
@@ -44,6 +50,7 @@
 (define c? (redex-match? Λ c))
 (define τ? (redex-match? Λ τ))
 (define Σ? (redex-match? Λ Σ))
+(define S? (redex-match? Λ S))
 
 (module+ test
   (define t-sort (term (∀ (α) (→ (listof α) (→ (→ α (→ α bool)) (listof α))))))
@@ -51,6 +58,8 @@
   (test-case "rwdex-match"
     (check-pred e? (term (not TRUE)))
     (check-pred e? (term TRUE))
+    (check-pred e? (term (let ([x 4]) x)))
+    (check-pred e? (term (let ([x (f g)]) (h x))))
 
     (check-pred c? (term not))
     (check-pred c? (term 42))
@@ -60,7 +69,9 @@
     (check-pred τ? (term (listof α)))
     (check-pred τ? (term (→ α (→ α bool))))
 
-    (check-pred Σ? t-sort)))
+    (check-pred Σ? t-sort)
+
+    (check-pred S? (term ()))))
 
 (define (Λ=? t0 t1)
   (alpha-equivalent? Λ t0 t1))
@@ -203,7 +214,10 @@
    [--> (in-hole E (c v_0))
         CHECK
         (where CHECK #{δ c v_0})
-        δ_2]))
+        δ_2]
+   [--> (in-hole E (let ([x v]) e))
+        (in-hole E (substitute e x v))
+        let]))
 
 (define --->*
   (reflexive-transitive-closure/deterministic --->))
@@ -226,7 +240,9 @@
      [(term (rest (one 5 none)))
       ==> (term none)]
      [(term (one (add1 0) (one (add1 1) none)))
-      ==> (term (one 1 (one 2 none)))]))
+      ==> (term (one 1 (one 2 none)))]
+     [(term (let ([x (add1 2)]) (add1 x)))
+      ==> (term 4)]))
 )
 
 (define-metafunction Λ
@@ -239,18 +255,18 @@
 ;;   stuck is _type safe_"
 
 (define-metafunction Λ
-  A-add : A [x ↦ τ] -> A
-  [(A-add A [x ↦ τ])
-   ((x_0 τ_0) ... (x τ) (x_2 τ_2) ...)
-   (where ((x_0 τ_0) ... (x τ_1) (x_2 τ_2) ...) A)]
-  [(A-add A [x ↦ τ])
-   ,(cons (term (x τ)) (term A))])
+  A-add : A [x ↦ Σ] -> A
+  [(A-add A [x ↦ Σ])
+   ((x_0 Σ_0) ... (x Σ) (x_2 Σ_2) ...)
+   (where ((x_0 Σ_0) ... (x Σ_1) (x_2 Σ_2) ...) A)]
+  [(A-add A [x ↦ Σ])
+   ,(cons (term (x Σ)) (term A))])
 
 (define-metafunction Λ
-  A-ref : A x -> τ
+  A-ref : A x -> Σ
   [(A-ref A x)
-   τ
-   (where ((x_0 τ_0) ... (x τ) (x_1 τ_1) ...) A)])
+   Σ
+   (where ((x_0 Σ_0) ... (x Σ) (x_1 Σ_1) ...) A)])
 
 (module+ test
   (test-case "A-add"
@@ -315,10 +331,7 @@
    --- const
    (static-typing A c (τ_0 τ_1 ...) (τ_1 ...))]
   [
-   (where τ_0 #{A-ref A x})
-   --- id
-   (static-typing A x (τ_0 τ_1 ...) (τ_1 ...))]
-  [
+   (side-condition ,(debug "λ checking ~a at ~a" (term (λ (x) e)) (term (→ τ_0 τ_1))))
    (static-typing #{A-add A [x ↦ τ_0]} e (τ_1 τ_2 ...) (τ_3 ...))
    --- lam
    (static-typing A (λ (x) e) ((→ τ_0 τ_1) τ_2 ...) (τ_3 ...))]
@@ -331,7 +344,22 @@
    (static-typing A e_0 (num τ_0 ...) (τ_1 ...))
    (static-typing A e_1 (listof-num τ_1 ...) (τ_2 ...))
    --- one
-   (static-typing A (one e_0 e_1) (listof-num τ_0 ...) (τ_2 ...))])
+   (static-typing A (one e_0 e_1) (listof-num τ_0 ...) (τ_2 ...))]
+  [
+   (where Σ_poly #{A-ref A x})
+   (where S #{unify τ_base Σ_poly})
+   (side-condition ,(debug "unified ~a and ~a to ~a" (term τ_base) (term Σ_poly) (term S)))
+   (instance τ_base S Σ_poly)
+   --- id
+   (static-typing A x (τ_base τ_1 ...) (τ_1 ...))]
+  [
+   (side-condition ,(debug "let-binding ~a" (term e_bnd)))
+   (static-typing A_0 e_bnd (τ_bnd τ_0 ...) (τ_1 ...))
+   (where A_1 #{A-add A_0 [x ↦ #{close τ_bnd A_0}]})
+   (side-condition ,(debug "let-binding ~a, generalized type to ~a" (term e_bnd) (term #{A-ref A_1 x})))
+   (static-typing A_1 e_bdy (τ_bdy τ_1 ...) (τ_2 ...))
+   --- let
+   (static-typing A_0 (let ([x e_bnd]) e_bdy) (τ_bdy τ_bnd τ_0 ...) (τ_2 ...))])
 
 (define-metafunction Λ
   static-typing# : e τ* -> boolean
@@ -361,7 +389,21 @@
         ((λ (x) (first (rest x)))
          none)
         (num listof-num listof-num listof-num)}))
-      ))
+    (check-true
+      (term #{static-typing#
+        (λ (y) y)
+        ((→ α α))}))
+    (check-false
+      (term #{static-typing#
+        (λ (y) y)
+        ((→ num bool))}))
+    (check-true
+      (term #{static-typing#
+        (let ([x (λ (y) y)])
+          (let ([z (x 1)])
+            (x none)))
+        (listof-num (→ α α) num num listof-num)})))
+)
 
 ;; "This condition requires that for a typable application `(c v)`,
 ;;  `δ(c,v)` must be defined and yield either a value of the result type of `c`
@@ -421,15 +463,26 @@
    (FV α (α))])
 
 (define-metafunction Λ
-  FV# : any -> α*
+  FV# : any -> any
   [(FV# Σ)
    α*
    (judgment-holds (FV Σ α*))]
   [(FV# τ)
    α*
    (judgment-holds (FV τ α*))]
+  [(FV# A)
+   ,(set-union* (term (α* ...)))
+   (where (Σ ...) #{A-cod A})
+   (where (α* ...) (#{FV# Σ} ...))]
   [(FV# Σ)
    ,(raise-user-error 'FV "undefined for ~a" (term Σ))])
+
+(define (set-union* set*)
+  (if (null? set*)
+    '()
+    (for/fold ([acc (car set*)])
+              ([st (in-list set*)])
+      (set-union acc st))))
 
 (module+ test
   (test-case "FV"
@@ -500,11 +553,18 @@
         ==> (term (→ bool (→ listof-num num)))]))))
 
 (define-metafunction Λ
+  A-cod : A -> Σ*
+  [(A-cod A)
+   (Σ ...)
+   (where ((α Σ) ...) A)])
+
+(define-metafunction Λ
   S-dom : S -> α*
   [(S-dom S)
    (α ...)
    (where ((α τ) ...) S)])
 
+;; TODO \E or τ
 (define-judgment-form Λ
   #:mode (instance I I I)
   #:contract (instance τ S Σ)
@@ -512,17 +572,91 @@
    (where #true ,(set=? (term α*) (term #{S-dom S})))
    (tsubst τ_1 S τ_0)
    ---
-   (instance τ_0 S (∀ α* τ_1))])
+   (instance τ_0 S (∀ α* τ_1))]
+  [
+   ---
+   (instance τ S τ)])
 
 (module+ test
   (test-case "instance"
     (check-true (judgment-holds
+      (instance num () num)))
+    (check-true (judgment-holds
       (instance num () (∀ () num))))
     (check-true (judgment-holds
       (instance (→ num num) ((α num)) (∀ (α) (→ α α)))))
+    (check-true (judgment-holds
+      (instance (→ (listof num) (→ (→ num (→ num bool)) (listof num)))
+                ((α num))
+                ,t-sort)))
     (check-false (judgment-holds
       (instance num ((α num)) (∀ (α) (→ α α)))))
     (check-false (judgment-holds
       (instance (→ num num) () (∀ (α) (→ α α)))))
     (check-false (judgment-holds
       (instance (→ num num) ((α num) (β num)) (∀ (α) (→ α α)))))))
+
+;; Figure 2.4
+;;  technically α* only needs to be a subset of the difference
+(define-metafunction Λ
+  close : τ A -> Σ
+  [(close τ A)
+   ,(if (null? (term α*))
+      (term τ)
+      (term (∀ α* τ)))
+   (where α*_τ #{FV# τ})
+   (where α*_A #{FV# A})
+   (where α* ,(set-subtract (term α*_τ) (term α*_A)))])
+
+(module+ test
+  (test-case "close"
+    (check-apply* (λ (t) (term #{close ,(car t) ,(cadr t)}))
+     [(term [num ()])
+      ==> (term num)]
+     [(term [α ()])
+      ==> (term (∀ (α) α))]
+     [(term [α ((x (→ num α)))])
+      ==> (term α)]
+     [(term [(→ α β) ((q num) (r num) (s β))])
+      ==> (term (∀ (α) (→ α β)))]))
+)
+
+;; TODO do correctly
+(define-metafunction Λ
+  unify : Σ Σ -> any
+  [(unify (∀ α* τ) Σ)
+   #{unify τ Σ}]
+  [(unify Σ (∀ α* τ))
+   #{unify Σ τ}]
+  [(unify α τ)
+   ((α τ))]
+  [(unify τ α)
+   ((α τ))]
+  [(unify α τ)
+   ((α τ))]
+  [(unify τ-base τ-base)
+   ()]
+  [(unify (→ τ_0 τ_1) (→ τ_2 τ_3))
+   ,(set-union (term S_0) (term S_1))
+   (where S_0 #{unify τ_0 τ_2})
+   (where S_1 #{unify τ_1 τ_3})]
+  [(unify τ_0 τ_1)
+   UNIFY-ERROR])
+
+(module+ test
+  (test-case "unify"
+    (check-apply* (λ (t) (term #{unify ,(car t) ,(cadr t)}))
+     [(term [num num])
+      ==> (term ())]
+     [(term [num bool])
+      ==> (term UNIFY-ERROR)]
+     [(term [num (→ num num)])
+      ==> (term UNIFY-ERROR)]
+     [(term [(→ α β) (→ num num)])
+      ==> (term ((β num) (α num)))]
+     [(term [(→ α β) (→ num bool)])
+      ==> (term ((β bool) (α num)))]
+     [(term [(∀ (α β) (→ α β)) (→ num bool)])
+      ==> (term ((β bool) (α num)))]))
+)
+
