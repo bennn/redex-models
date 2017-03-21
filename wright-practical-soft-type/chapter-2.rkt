@@ -660,3 +660,32 @@
       ==> (term ((β bool) (α num)))]))
 )
 
+;; -----------------------------------------------------------------------------
+;; 2.4 Soft Typing
+;;  ".... a soft type system enforces no constraints. All programs that can
+;;   can be executed under dynamic typing can also be executed with a soft
+;;   type system."
+
+;; 1. determines types for identifiers and expressions of a program
+;;    these types are UPPER bouds
+;; 2. insert runtime checks
+;;    - should not alter meaning
+;;    - should not alter time/space complexity (constant time/space, `list?` is no good)
+
+;; Adding enough runtime checks will yield a typeable program.
+
+;(define-judgment-form Λ
+;  #:mode (soft-typing I I O O)
+;  #:contract (soft-typing A e e τ)
+;  [
+;   --- hard-failure
+;   (soft-typing A e_0 42 num)])
+;
+;(module+ test
+;  (test-case "soft:add1"
+;    (check-true (term #{soft-typing
+;      (λ (x)
+;        (if (number? x)
+;          (add1 x)
+;          (error "not a number")))
+;      (∀ (α) (→ α num))}))))
