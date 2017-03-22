@@ -1,6 +1,7 @@
 #lang mf-apply racket/base
 
 (require
+  "../utils.rkt"
   racket/set
   redex/reduction-semantics)
 
@@ -21,11 +22,18 @@
          (CHECK-ap e e)
          (cons e e)]
   [v ::= c x (λ (x) e) (cons v v)]
-  [c ::= basic-constant unchecked-prim checked-prim]
+  [E ::= hole
+         (ap E e) (ap v E)
+         (if E e e)
+         (let ([x E]) e)
+         (CHECK-ap E e) (CHECK-ap v E)
+         (cons E e) (cons v E)]
+  [c ::= basic-constant Prim]
+  [Prim ::= unchecked-prim checked-prim]
   [basic-constant ::= integer boolean null]
   [unchecked-prim ::= add1 car cdr cons]
-  [checked-prim ::= CHECK-add1 CHECK-car CHECK-cdr]
-  [a ::= v CHECK]
+  [checked-prim ::= check-add1 check-car check-cdr]
+  [a ::= v check]
   [error ::= UNDEFINED]
 
   [x* ::= (x ...)]
@@ -38,7 +46,12 @@
 
 (define e? (redex-match? PureScheme e))
 (define v? (redex-match? PureScheme v))
+(define a? (redex-match? PureScheme a))
 (define c? (redex-match? PureScheme c))
+(define Prim? (redex-match? PureScheme Prim))
+
+(define (check? x)
+  (equal? x (term check)))
 
 (define (PureScheme=? t0 t1)
   (alpha-equivalent? PureScheme t0 t1))
@@ -51,11 +64,14 @@
     (check-pred e? (term (let ([x (CHECK-ap f g)]) (CHECK-ap h x))))
     (check-pred e? (term (λ (x) x)))
     (check-pred e? (term (ap car (cons 1 null))))
+    (check-pred e? (term (ap (λ (x) #true) #false)))
+    (check-pred e? (term #true))
 
     (check-pred c? (term add1))
     (check-pred c? (term 42))
 
     (check-pred v? (term #t))
+    (check-pred v? (term #false))
     (check-pred v? (term (λ (x) x)))
     (check-pred v? (term (cons 1 null)))
 
@@ -80,7 +96,7 @@
    (free-variables e_0 x*_0)
    (free-variables e_1 x*_1)
    (where x*_2 ,(set-union (term x*_0) (term x*_1)))
-   --- CHECK-ap
+   --- check-ap
    (free-variables (CHECK-ap e_0 e_1) x*_2)]
   [
    (free-variables e_0 x*_0)
@@ -165,22 +181,22 @@
 
 (define-metafunction PureScheme
   δ : c v -> any
-  [(δ CHECK-add1 integer)
+  [(δ check-add1 integer)
    ,(+ 1 (term integer))]
-  [(δ CHECK-add1 v)
-   CHECK]
+  [(δ check-add1 v)
+   check]
   [(δ add1 integer)
    ,(+ 1 (term integer))]
-  [(δ CHECK-car (cons v_0 v_1))
+  [(δ check-car (cons v_0 v_1))
    v_0]
-  [(δ CHECK-car v)
-   CHECK]
+  [(δ check-car v)
+   check]
   [(δ car (cons v_0 v_1))
    v_0]
-  [(δ CHECK-cdr (cons v_0 v_1))
+  [(δ check-cdr (cons v_0 v_1))
    v_1]
-  [(δ CHECK-cdr v)
-   CHECK]
+  [(δ check-cdr v)
+   check]
   [(δ cdr (cons v_0 v_1))
    v_1]
   [(δ c v)
@@ -189,19 +205,19 @@
 (module+ test
   (test-case "δ"
     (check-equal? (term #{δ add1 5}) (term 6))
-    (check-equal? (term #{δ CHECK-add1 5}) (term 6))
+    (check-equal? (term #{δ check-add1 5}) (term 6))
     (check-equal? (term #{δ car (cons 1 null)}) (term 1))
-    (check-equal? (term #{δ CHECK-car (cons 1 null)}) (term 1))
+    (check-equal? (term #{δ check-car (cons 1 null)}) (term 1))
     (check-equal? (term #{δ cdr (cons 1 null)}) (term null))
-    (check-equal? (term #{δ CHECK-cdr (cons 1 null)}) (term null))
-    (check-equal? (term #{δ CHECK-cdr null}) (term CHECK))
+    (check-equal? (term #{δ check-cdr (cons 1 null)}) (term null))
+    (check-equal? (term #{δ check-cdr null}) (term check))
     (check-equal? (term #{δ cdr null}) (term UNDEFINED))))
 
 (define-judgment-form PureScheme
   #:mode (meaningful I)
   #:contract (meaningful e)
   [
-   --- CHECK-ap
+   --- check-ap
    (meaningful (CHECK-ap e v))]
   [
    --- ap-checked
@@ -228,4 +244,83 @@
       [(term (ap add1 #true))]
       [(term (ap car null))]
       [(term (ap 1 2))])))
+
+;; TODO need to check 'meaningful?'
+(define --->
+  (reduction-relation PureScheme
+   [--> (in-hole E (ap (λ (x) e) v))
+        (in-hole E (substitute e x v))
+        (side-condition (debug "maybe you should give up ~a" (term (ap (λ (x) e) v))))
+        βv]
+   [--> (in-hole E (CHECK-ap (λ (x) e) v))
+        (in-hole E (substitute e x v))
+        check-βv]
+   [--> (in-hole E (let ([x v]) e))
+        (in-hole E (substitute e x v))
+        let]
+   [--> (in-hole E (if v e_1 e_2))
+        (in-hole E e_1)
+        (side-condition (not (equal? (term v) #f)))
+        if1]
+   [--> (in-hole E (if #false e_1 e_2))
+        (in-hole E e_2)
+        if2]
+   [--> (in-hole E (ap Prim v))
+        (in-hole E v_1)
+        (where v_1 #{δ Prim v})
+        δ1]
+   [--> (in-hole E (ap Prim v))
+        check
+        (where check #{δ Prim v})
+        δ2]
+   [--> (in-hole E (CHECK-ap Prim v))
+        (in-hole E v_1)
+        (side-condition (debug "checkap 1"))
+        (where v_1 #{δ Prim v})
+        check-δ1]
+   [--> (in-hole E (CHECK-ap c v))
+        check
+        (side-condition (debug "checkap 2 ~a" (term (CHECK-ap c v))))
+        (side-condition (or (not (Prim? (term c)))
+                            (check? (term #{δ c v}))))
+        check-δ2]
+   [--> (in-hole E (any c v))
+        ,(raise-user-error '---> "non-meaningful term ~a" (term (any c v)))
+        (side-condition (and (member (term any) '(CHECK-ap ap)) #t))
+        (where UNDEFINED #{δ c v})
+        err]))
+
+;; Evaluate `t` to:
+;; - a value, if possible
+;; - infinity, if necessary
+;; - an exception if `t` contains a meaningless redex
+(define --->*
+  (reflexive-transitive-closure/deterministic --->))
+
+(module+ test
+  (test-case "--->"
+    (check-apply* --->*
+     [(term (ap (λ (x) #true) #false))
+      ==> (term #true)]
+     [(term (CHECK-ap (λ (x) x) #false))
+      ==> (term #false)]
+     [(term (ap add1 4))
+      ==> (term 5)]
+     [(term (cons 1 1))
+      ==> (term (cons 1 1))]
+     [(term (cons (ap add1 1) (CHECK-ap add1 1)))
+      ==> (term (cons 2 2))]
+     [(term (CHECK-ap check-add1 (λ (x) #true)))
+      ==> (term check)]
+     [(term (ap add1 (ap add1 0)))
+      ==> (term 2)]
+     [(term (ap cdr (cons 5 null)))
+      ==> (term null)]
+     [(term (let ([x (ap add1 2)]) (ap add1 x)))
+      ==> (term 4)])
+
+    (check-exn exn:fail:user?
+      (λ () (--->* (term (CHECK-ap add1 (λ (x) #true)))))))
+)
+
 
