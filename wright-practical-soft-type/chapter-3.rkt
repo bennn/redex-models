@@ -30,14 +30,32 @@
          (cons E e) (cons v E)]
   [c ::= basic-constant Prim]
   [Prim ::= unchecked-prim checked-prim]
-  [basic-constant ::= integer boolean null]
+  [basic-constant ::= integer boolean nil]
   [unchecked-prim ::= add1 car cdr cons]
   [checked-prim ::= check-add1 check-car check-cdr]
   [a ::= v check]
   [error ::= UNDEFINED]
-
+  ;; --- 3.4
+  [σ τ ::= ;; static types
+           slack
+           (U partition ... slack)
+           (μ α τ)]
+  [partition ::= (k flag σ ...)]
+  [slack ::= ∅ α]
+  [k ::= ;; tags, partition the data domain
+         True
+         False
+         Num
+         Nil
+         Cons
+         →]
+  [flag ::= ++ -- φ]
+  ;; ---
+  [k* ::= (k ...)]
+  [σ* ::= (σ ...)]
+  [τ* ::= (τ ...)]
   [x* ::= (x ...)]
-  [x ::= variable-not-otherwise-mentioned]
+  [x α φ ::= variable-not-otherwise-mentioned]
   #:binding-forms
   (λ (x) e #:refers-to x)
   (let ([x e_0]) e_1 #:refers-to x))
@@ -48,10 +66,18 @@
 (define v? (redex-match? PureScheme v))
 (define a? (redex-match? PureScheme a))
 (define c? (redex-match? PureScheme c))
+(define τ? (redex-match? PureScheme τ))
+(define σ? τ?)
+(define partition? (redex-match? PureScheme partition))
+(define flag? (redex-match? PureScheme flag))
+(define k? (redex-match? PureScheme k))
 (define Prim? (redex-match? PureScheme Prim))
 
 (define (check? x)
   (equal? x (term check)))
+
+(define (stuck? x)
+  (equal? x (term STUCK)))
 
 (define (PureScheme=? t0 t1)
   (alpha-equivalent? PureScheme t0 t1))
@@ -63,7 +89,7 @@
     (check-pred e? (term (let ([x 4]) x)))
     (check-pred e? (term (let ([x (CHECK-ap f g)]) (CHECK-ap h x))))
     (check-pred e? (term (λ (x) x)))
-    (check-pred e? (term (ap car (cons 1 null))))
+    (check-pred e? (term (ap car (cons 1 nil))))
     (check-pred e? (term (ap (λ (x) #true) #false)))
     (check-pred e? (term #true))
 
@@ -73,7 +99,14 @@
     (check-pred v? (term #t))
     (check-pred v? (term #false))
     (check-pred v? (term (λ (x) x)))
-    (check-pred v? (term (cons 1 null)))
+    (check-pred v? (term (cons 1 nil)))
+
+    (check-pred τ? (term (U (Num ++) ∅))) ;; numbers
+    (check-pred τ? (term (U (Num ++) (Nil --) ∅))) ;; numbers
+    (check-pred τ? (term (U (Num ++) (Nil ++) ∅))) ;; numbers or nil
+    (check-pred τ? (term (U (Num --) (Nil --) ∅))) ;; empty
+    (check-pred τ? (term (U (Num ++) (Nil --) α))) ;; numbers or (α - nil)
+    (check-pred τ? (term (U (→ ++ α (U (True ++) (False ++) ∅)) ∅))) ;; functions from α to bool
 
     (void))
 )
@@ -84,6 +117,11 @@
   [
    --- Var
    (free-variables x (x))]
+  [
+   (free-variables e_0 (x_0 ...))
+   (free-variables e_1 (x_1 ...))
+   --- Cons
+   (free-variables (cons e_0 e_1) (x_0 ... x_1 ...))]
   [
    (free-variables e x*_2)
    (where x*_1 ,(set-remove (term x*_2) (term x)))
@@ -134,6 +172,9 @@
    ---
    (closed e)])
 
+(define (closed? t)
+  (judgment-holds (closed ,t)))
+
 (module+ test
   (test-case "free-variables"
     (check-apply* (λ (t) (term #{free-variables# ,t}))
@@ -160,6 +201,8 @@
   )
   (test-case "closed"
     (check-apply* (λ (t) (judgment-holds (closed ,t)))
+     [(term #t)
+      ==> #t]
      [(term x)
       ==> #f]
      [(term (λ (x) y))
@@ -206,12 +249,12 @@
   (test-case "δ"
     (check-equal? (term #{δ add1 5}) (term 6))
     (check-equal? (term #{δ check-add1 5}) (term 6))
-    (check-equal? (term #{δ car (cons 1 null)}) (term 1))
-    (check-equal? (term #{δ check-car (cons 1 null)}) (term 1))
-    (check-equal? (term #{δ cdr (cons 1 null)}) (term null))
-    (check-equal? (term #{δ check-cdr (cons 1 null)}) (term null))
-    (check-equal? (term #{δ check-cdr null}) (term check))
-    (check-equal? (term #{δ cdr null}) (term UNDEFINED))))
+    (check-equal? (term #{δ car (cons 1 nil)}) (term 1))
+    (check-equal? (term #{δ check-car (cons 1 nil)}) (term 1))
+    (check-equal? (term #{δ cdr (cons 1 nil)}) (term nil))
+    (check-equal? (term #{δ check-cdr (cons 1 nil)}) (term nil))
+    (check-equal? (term #{δ check-cdr nil}) (term check))
+    (check-equal? (term #{δ cdr nil}) (term UNDEFINED))))
 
 (define-judgment-form PureScheme
   #:mode (meaningful I)
@@ -242,7 +285,7 @@
   (test-case "meaningless"
     (check-true* (λ (t) (term #{meaningless? ,t}))
       [(term (ap add1 #true))]
-      [(term (ap car null))]
+      [(term (ap car nil))]
       [(term (ap 1 2))])))
 
 ;; TODO need to check 'meaningful?'
@@ -289,12 +332,21 @@
         (judgment-holds (stuck e))
         stuck]))
 
-;; Evaluate `t` to:
-;; - a value, if possible
-;; - infinity, if necessary
-;; - an exception if `t` contains a meaningless redex
+;; Lemma 3.1: Uniform Evaluation
+;;  For all closed expressions `e`, either:
+;;  - `e` diverges
+;;  - `e --->* check`
+;;  - `e --->* v` where `v` closed
+;;  - `e --->* e'` where `e'` stuck
 (define --->*
-  (reflexive-transitive-closure/deterministic --->))
+  (let ([-> (reflexive-transitive-closure/deterministic --->)])
+    (λ (t)
+      (let ([v (-> t)])
+        (if (or (check? v) (stuck? v))
+          v
+          (if (closed? v)
+            v
+            (raise-user-error '--->* "evaluating ~a gave non-closed value ~a" t v)))))))
 
 (define-judgment-form PureScheme
   #:mode (stuck I)
@@ -328,12 +380,64 @@
       ==> (term check)]
      [(term (ap add1 (ap add1 0)))
       ==> (term 2)]
-     [(term (ap cdr (cons 5 null)))
-      ==> (term null)]
+     [(term (ap cdr (cons 5 nil)))
+      ==> (term nil)]
      [(term (let ([x (ap add1 2)]) (ap add1 x)))
       ==> (term 4)]
      [(term (CHECK-ap add1 (λ (x) #true)))
       ==> (term STUCK)]))
 )
 
+;; -----------------------------------------------------------------------------
+;; 3.4 
+;; types must be tidy, each tag may be used at most once within a union and type
+;;  variables must have a consistent universe
 
+;; types must have form
+;; - α ∅ (U (k f τ) (¬ (k) τ) ...) (μ 
+(define-judgment-form PureScheme
+  #:mode (tidy I I)
+  #:contract (tidy k* τ)
+  [
+   --- α
+   (tidy k* α)]
+  [
+   --- ∅
+   (tidy k* ∅)]
+  [
+   (tidy () α)
+   (tidy () τ)
+   --- μ
+   (tidy () (μ α τ))]
+  [
+   (side-condition ,(not (set-member? (term k*_0) (term k))))
+   (tidy () σ) ...
+   (where k*_1 ,(cons (term k) (term k*_0)))
+   (tidy k*_1 (U partition ∅)) ...
+   --- U
+   (tidy k*_0 (U (k flag σ ...) partition ... slack))])
+
+(define-metafunction PureScheme
+  [(tidy# τ)
+   #true
+   (judgment-holds (tidy () τ))]
+  [(tidy# τ)
+   #false])
+
+(define (tidy? t)
+  (term #{tidy# ,t}))
+
+(module+ test
+  (test-case "tidy"
+    (check-true* tidy?
+     [(term (U (Num ++) ∅))] ;; numbers
+     [(term (U (Num ++) (Nil --) ∅))] ;; numbers
+     [(term (U (Num ++) (Nil ++) ∅))] ;; numbers or nil
+     [(term (U (Num --) (Nil --) ∅))] ;; empty
+     [(term (U (Num ++) (Nil --) α))] ;; numbers or (α - nil)
+     [(term (U (→ ++ α (U (True ++) (False ++) ∅)) ∅))]) ;; functions from α to bool
+    (check-false* tidy?
+      [(term (U (Num --) (Num ++) ∅))]))
+)
+
+;; 

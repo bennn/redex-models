@@ -55,7 +55,7 @@
 (module+ test
   (define t-sort (term (∀ (α) (→ (listof α) (→ (→ α (→ α bool)) (listof α))))))
 
-  (test-case "rwdex-match"
+  (test-case "redex-match"
     (check-pred e? (term (not TRUE)))
     (check-pred e? (term TRUE))
     (check-pred e? (term (let ([x 4]) x)))
