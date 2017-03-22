@@ -284,11 +284,10 @@
         (side-condition (or (not (Prim? (term c)))
                             (check? (term #{δ c v}))))
         check-δ2]
-   [--> (in-hole E (any c v))
-        ,(raise-user-error '---> "non-meaningful term ~a" (term (any c v)))
-        (side-condition (and (member (term any) '(CHECK-ap ap)) #t))
-        (where UNDEFINED #{δ c v})
-        err]))
+   [--> (in-hole E e)
+        STUCK
+        (judgment-holds (stuck e))
+        stuck]))
 
 ;; Evaluate `t` to:
 ;; - a value, if possible
@@ -296,6 +295,21 @@
 ;; - an exception if `t` contains a meaningless redex
 (define --->*
   (reflexive-transitive-closure/deterministic --->))
+
+(define-judgment-form PureScheme
+  #:mode (stuck I)
+  #:contract (stuck e)
+  [
+   (where UNDEFINED #{δ Prim v})
+   --- ap
+   (stuck (ap Prim v))]
+  [
+   (where UNDEFINED #{δ Prim v})
+   --- check
+   (stuck (CHECK-ap Prim v))]
+  [
+   --- prim
+   (stuck (ap basic-constant v))])
 
 (module+ test
   (test-case "--->"
@@ -317,10 +331,9 @@
      [(term (ap cdr (cons 5 null)))
       ==> (term null)]
      [(term (let ([x (ap add1 2)]) (ap add1 x)))
-      ==> (term 4)])
-
-    (check-exn exn:fail:user?
-      (λ () (--->* (term (CHECK-ap add1 (λ (x) #true)))))))
+      ==> (term 4)]
+     [(term (CHECK-ap add1 (λ (x) #true)))
+      ==> (term STUCK)]))
 )
 
 
