@@ -20,7 +20,7 @@
   redex/reduction-semantics)
 
 (module+ test
-  (require rackunit rackunit-abbrevs))
+  (require rackunit rackunit-abbrevs/redex))
 
 ;; =============================================================================
 
@@ -288,5 +288,43 @@
      [(judgment-holds (⊑ () ? Int))]
      [(judgment-holds (⊑ () ? (Int → Int)))]
      [(judgment-holds (⊑ () (Int → Int) (Int → Int)))])
+  )
+)
+
+(define-metafunction λ?
+  fresh : S -> α
+  [(fresh ((α τ) ...))
+   ,(string->symbol (format "α~a" (length (term (α ...)))))])
+
+(define-judgment-form λ?
+  #:mode (⊢α I I I O)
+  #:contract (⊢α S Γ e τ)
+  [
+   (where τ #{lookup Γ x})
+   --- GVar
+   (⊢α S Γ x τ)]
+  [
+   (where τ #{typeof c})
+   --- GCnst
+   (⊢α S Γ c τ)]
+  [
+   (⊢α S Γ e_1 τ_1)
+   (⊢α S Γ e_2 τ_2)
+   (where α #{fresh S})
+   (~= S τ_1 (τ_2 → α))
+   --- GApp
+   (⊢α S Γ (e_1 e_2) α)]
+  [
+   (⊢α S #{extend Γ [x ↦ τ_1]} e τ_2)
+   --- GAbs
+   (⊢α S Γ (λ (x : τ_1) e) (τ_1 → τ_2))])
+
+;; TODO ~= rules need to output a new S
+
+#;(module+ test
+  (test-case "⊢α"
+    (check-true* values
+     [(judgment-holds (⊢α () () (succ Z) Int))]
+    )
   )
 )
