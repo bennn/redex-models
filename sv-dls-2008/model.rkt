@@ -30,11 +30,12 @@
   [c ::= ;; constants
          true false succ Z null (fix τ)]
   [τ ::= ;; types
-         ? γ (τ → τ)]
+         α ? γ (τ → τ)]
   [e ::= x c (e e) (λ (x : τ) e)]
   [e+ ::= x c (e+ e+) (λ (x : τ) e+) (λ (x) e+) (let ((x : τ) e+) e+)]
   [Γ ::= ((x τ) ...)]
-  [x y ::= variable-not-otherwise-mentioned]
+  [S ::= Γ]
+  [α x y ::= variable-not-otherwise-mentioned]
   #:binding-forms (λ (x : τ) e #:refers-to x))
 
 (define γ? (redex-match? λ? γ))
@@ -216,4 +217,76 @@
   )
 )
 
+;; -----------------------------------------------------------------------------
+;; New type system, consistent equal, consistent less
 
+(define-judgment-form λ?
+  #:mode (~= I I I)
+  #:contract (~= S τ τ)
+  [
+   --- CEG
+   (~= S γ γ)]
+  [
+   --- CEDL
+   (~= S ? τ)]
+  [
+   --- CEDR
+   (~= S τ ?)]
+  [
+   (~= S τ_1 τ_3)
+   (~= S τ_2 τ_4)
+   --- CEFUN
+   (~= S (τ_1 → τ_2) (τ_3 → τ_4))]
+  [
+   (⊑ S τ #{lookup S α})
+   --- CEVL
+   (~= S α τ)]
+  [
+   (⊑ S τ #{lookup S α})
+   --- CEVR
+   (~= S τ α)])
+
+(define-judgment-form λ?
+  #:mode (⊑ I I I)
+  #:contract (⊑ S τ τ)
+  [
+   (where τ #{lookup S α})
+   --- CLVar
+   (⊑ S α τ)]
+  [
+   --- CLG
+   (⊑ S γ γ)]
+  [
+   --- CLDL
+   (⊑ S ? τ)]
+  [
+   (⊑ S τ_1 τ_3)
+   (⊑ S τ_2 τ_4)
+   --- CLFun
+   (⊑ S (τ_1 → τ_2) (τ_3 → τ_4))])
+
+(module+ test
+  (test-case "~="
+    (check-true* values
+     [(judgment-holds (~= () Int Int))]
+     [(judgment-holds (~= () ? Int))]
+     [(judgment-holds (~= () ? (Int → Bool)))]
+     [(judgment-holds (~= () (Int → Int) (Int → Int)))]
+     [(judgment-holds (~= ((α Int)) α Int))]
+     [(judgment-holds (~= ((α Int)) Int α))]
+     [(judgment-holds (~= ((α ((? → Bool) → (Int → Bool)))
+                           (β (? → Bool)))
+                          (Int → α)
+                          (? → (β → (Int → ?)))))])
+    (check-false* values
+     [(judgment-holds (~= () Int Bool))])
+  )
+  (test-case "⊑"
+    (check-true* values
+     [(judgment-holds (⊑ ((α Int)) α Int))]
+     [(judgment-holds (⊑ () Int Int))]
+     [(judgment-holds (⊑ () ? Int))]
+     [(judgment-holds (⊑ () ? (Int → Int)))]
+     [(judgment-holds (⊑ () (Int → Int) (Int → Int)))])
+  )
+)
