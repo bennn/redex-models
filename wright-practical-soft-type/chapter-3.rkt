@@ -50,21 +50,28 @@
          Cons
          →]
   [flag ::= ++ -- φ]
+  [Σ ::= ;; typescheme
+         (∀ (ν ν ...) τ) τ]
+  [S ::= ;; substitution
+         (sub ...)]
+  [sub ::= (φ flag) (α τ)]
   ;; ---
   [k* ::= ;; X in the dissertation, aka "set of k" aka "label"
           (k ...)]
   [σ* ::= (σ ...)]
   [τ* ::= (τ ...)]
   [x* ::= (x ...)]
+  [ν* ::= (ν ...)]
   [x α φ ν ::= ;; x = program variable
              ;; α = type variable
              ;; φ = flag variable
-             ;; ν = type or flag variable  (TODO where used in dissertation?)
+             ;; ν = type or flag variable
              variable-not-otherwise-mentioned]
   #:binding-forms
   (λ (x) e #:refers-to x)
   (let ([x e_0]) e_1 #:refers-to x)
-  (μ α τ #:refers-to α))
+  (μ α τ #:refers-to α)
+  (Σ (ν ...) τ #:refers-to (shadow ν ...)))
 
 ;; Programs are closed expressions
 
@@ -74,9 +81,12 @@
 (define c? (redex-match? PureScheme c))
 (define τ? (redex-match? PureScheme τ))
 (define σ? τ?)
+(define Σ? (redex-match? PureScheme Σ))
+(define S? (redex-match? PureScheme S))
 (define partition? (redex-match? PureScheme partition))
 (define flag? (redex-match? PureScheme flag))
 (define k? (redex-match? PureScheme k))
+(define ν*? (redex-match? PureScheme ν*))
 (define Prim? (redex-match? PureScheme Prim))
 
 (define (check? x)
@@ -115,6 +125,14 @@
     (check-pred τ? (term (U (→ ++ α (U (True ++) (False ++) ∅)) ∅))) ;; functions from α to bool
     (check-pred τ? (term (U (Num ++) (True --) (Cons ++ ∅ ∅) α)))
     (check-pred τ? (term (μ α (U (Nil ++) (Cons ++ τ α) ∅))))
+    (check-pred τ? (term (U (→ ++ (U (Num ++) ∅) (U (Num ++) ∅)) ∅)))
+    (check-pred τ? (term (U (→ b a a) ∅)))
+
+    (check-pred ν*? (term (a b)))
+
+    (check-pred S? (term ((a (U (Num ++) ∅)) (b ++))))
+
+    (check-pred Σ? (term (∀ (a b) (U (→ b α α) ∅))))
 
     (void))
 )
@@ -593,5 +611,40 @@
     (check-true* values
      [(judgment-holds (τ=? (U (Nil --) ∅) ∅))]
      [(judgment-holds (τ=? (U (True ++) (False ++) ∅) (U (False ++) (True ++) ∅)))])
+  )
+)
+
+(define-metafunction PureScheme
+  substitute* : S τ -> τ
+  [(substitute* () τ)
+   τ]
+  [(substitute* ((α σ) sub ...) τ)
+   (substitute* (sub ...) (substitute τ α σ))]
+  [(substitute* ((φ flag) sub ...) τ)
+   (substitute* (sub ...) (substitute τ φ flag))])
+
+(define-metafunction PureScheme
+  dom : any -> x*
+  [(dom any)
+   ,(sort (map car (term any)) symbol<?)
+   (side-condition (pair? (term any)))
+   (side-condition (andmap pair? (term any)))])
+
+;; special "<"
+(define-judgment-form PureScheme
+  #:mode (instance I I I)
+  #:contract (instance S τ Σ)
+  [
+   (where ν* #{dom S})
+   (where τ_0 #{substitute* S τ_1})
+   ---
+   (instance S τ_0 (∀ ν* τ_1))])
+
+(module+ test
+  (test-case "instance"
+    (check-true* values
+     [(judgment-holds (instance ((a (U (Num ++) ∅)) (b ++))
+                                (U (→ ++ (U (Num ++) ∅) (U (Num ++) ∅)) ∅)
+                                (∀ (a b) (U (→ b a a) ∅))))])
   )
 )
