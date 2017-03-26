@@ -12,6 +12,9 @@
 ;; - inference for new type system,
 ;;   does not infer types that add unnecessary casts
 
+;; TODO
+;; - does the paper have recursive functions?
+
 (require
   racket/set
   redex/reduction-semantics)
@@ -110,7 +113,7 @@
   [(typeof Z)
    Int]
   [(typeof succ)
-   (→ Int Int)]
+   (Int → Int)]
   [(typeof null)
    Unit]
   [(typeof (fix τ))
@@ -148,7 +151,7 @@
    --- App1
    (⊢g Γ (e_1 e_2) ?)]
   [
-   (⊢g Γ e_1 (→ τ_1 τ_3))
+   (⊢g Γ e_1 (τ_1 → τ_3))
    (⊢g Γ e_2 τ_2)
    (~ τ_1 τ_2)
    --- App2
@@ -156,7 +159,7 @@
   [
    (⊢g #{extend Γ (x ↦ τ_1)} e τ_2)
    --- Abs
-   (⊢g Γ (λ (x : τ_1) e) (→ τ_1 τ_2))])
+   (⊢g Γ (λ (x : τ_1) e) (τ_1 → τ_2))])
 
 (define-judgment-form λ?
   #:mode (~ I I)
@@ -199,4 +202,18 @@
       ==> #f]))
 
   (test-case "well-typed"
-  ))
+    (check-true* values
+     [(judgment-holds (⊢g ((x Int)) x Int))]
+     [(judgment-holds (⊢g () true Bool))]
+     [(judgment-holds (⊢g ((x Int)) false Bool))]
+     [(judgment-holds (⊢g ((x Int)) Z Int))]
+     [(judgment-holds (⊢g () null Unit))]
+     [(judgment-holds (⊢g () (succ Z) Int))]
+     [(judgment-holds (⊢g ((f (Int → Int))) (f Z) Int))]
+     [(judgment-holds (⊢g ((f ?) (x Int)) (f x) ?))]
+     [(judgment-holds (⊢g () (λ (x : Int) x) (Int → Int)))]
+     [(judgment-holds (⊢g ((y Bool)) ((λ (x : ?) y) (succ Z)) Bool))])
+  )
+)
+
+
