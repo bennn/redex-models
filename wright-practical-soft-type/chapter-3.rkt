@@ -43,22 +43,28 @@
   [partition ::= (k flag σ ...)]
   [slack ::= ∅ α]
   [k ::= ;; tags, partition the data domain
+         Num
          True
          False
-         Num
          Nil
          Cons
          →]
   [flag ::= ++ -- φ]
   ;; ---
-  [k* ::= (k ...)]
+  [k* ::= ;; X in the dissertation, aka "set of k" aka "label"
+          (k ...)]
   [σ* ::= (σ ...)]
   [τ* ::= (τ ...)]
   [x* ::= (x ...)]
-  [x α φ ::= variable-not-otherwise-mentioned]
+  [x α φ ν ::= ;; x = program variable
+             ;; α = type variable
+             ;; φ = flag variable
+             ;; ν = type or flag variable  (TODO where used in dissertation?)
+             variable-not-otherwise-mentioned]
   #:binding-forms
   (λ (x) e #:refers-to x)
-  (let ([x e_0]) e_1 #:refers-to x))
+  (let ([x e_0]) e_1 #:refers-to x)
+  (μ α τ #:refers-to α))
 
 ;; Programs are closed expressions
 
@@ -107,6 +113,8 @@
     (check-pred τ? (term (U (Num --) (Nil --) ∅))) ;; empty
     (check-pred τ? (term (U (Num ++) (Nil --) α))) ;; numbers or (α - nil)
     (check-pred τ? (term (U (→ ++ α (U (True ++) (False ++) ∅)) ∅))) ;; functions from α to bool
+    (check-pred τ? (term (U (Num ++) (True --) (Cons ++ ∅ ∅) α)))
+    (check-pred τ? (term (μ α (U (Nil ++) (Cons ++ τ α) ∅))))
 
     (void))
 )
@@ -437,7 +445,153 @@
      [(term (U (Num ++) (Nil --) α))] ;; numbers or (α - nil)
      [(term (U (→ ++ α (U (True ++) (False ++) ∅)) ∅))]) ;; functions from α to bool
     (check-false* tidy?
-      [(term (U (Num --) (Num ++) ∅))]))
+     [(term (U (Num --) (Num ++) ∅))]))
 )
 
-;; 
+;; "Types represent regular trees with the tags `k` constructing internal nodes.
+;;  In a constructed type `(U (k f σ1 ... σn) τ)` the constructor `k` has `n+2` args:
+;;  - `σ1 ... σn`
+;;  - `f`
+;;  - `τ`"
+;; Thats a little weird for me, that `τ` is an argument to `k`.
+;; As long as `tidy` is correct we're fine.
+
+;; The range of a type variable that appears in a union type excludes types
+;; built from the tags of partitions preceding it.
+
+(define-metafunction PureScheme
+  tags : τ -> k*
+  [(tags slack)
+   ()]
+  [(tags (μ α τ))
+   #{tags τ}]
+  [(tags (U partition ... slack))
+   ,(map car (term (partition ...)))])
+
+(module+ test
+  (test-case "tags"
+    (check-equal?
+      (term #{tags (U (Num ++) (True --) (Cons ++ ∅ ∅) α)})
+      (term (Num True Cons))))
+)
+
+;; Types assigned to program identifiers have label ()
+;; Recursive types represent infinite regular trees
+;; Recursive types must be formally contractive
+(define-judgment-form PureScheme
+  #:mode (contractive I)
+  #:contract (contractive any)
+  [
+   --- slack
+   (contractive slack)]
+  [
+   (contractive partition) ...
+   --- union
+   (contractive (U partition ... slack))]
+  [
+   (contractive σ) ...
+   --- partition
+   (contractive (k flag σ ...))]
+  [
+   (side-condition ,(not (equal? (term α) (term τ))))
+   (strictly-positive α τ)
+   --- rec
+   (contractive (μ α τ))])
+
+(define-judgment-form PureScheme
+  #:mode (strictly-positive I I)
+  #:contract (strictly-positive α τ)
+  [
+   --- slack
+   (strictly-positive α slack)]
+  [
+   --- union
+   (strictly-positive α (U partition ... slack))]
+  [
+   (strictly-negative α τ_1)
+   (strictly-positive α τ_2)
+   --- arrow
+   (strictly-positive α (→ flag τ_1 τ_2))]
+  [
+   (side-condition ,(not (equal? (term →) (term k))))
+   (strictly-positive α τ) ...
+   --- k
+   (strictly-positive α (k flag τ ...))]
+  [
+   (strictly-positive α τ)
+   --- rec
+   (strictly-positive α (μ α_1 τ))])
+
+(define-judgment-form PureScheme
+  #:mode (strictly-negative I I)
+  #:contract (strictly-negative α τ)
+  [
+   (side-condition ,(not (equal? (term α) (term slack))))
+   --- slack
+   (strictly-negative α slack)]
+  [
+   --- union
+   (strictly-negative α (U partition ... slack))]
+  [
+   (strictly-positive α τ_1)
+   (strictly-negative α τ_2)
+   --- arrow
+   (strictly-negative α (→ flag τ_1 τ_2))]
+  [
+   (side-condition ,(not (equal? (term →) (term k))))
+   (strictly-negative α τ) ...
+   --- k
+   (strictly-negative α (k flag τ ...))]
+  [
+   (strictly-negative α τ)
+   --- rec
+   (strictly-negative α (μ α_1 τ))])
+
+(module+ test
+  (test-case "contractive"
+    (check-true* values
+     [(judgment-holds (contractive (U (Num ++) ∅)))]
+     [(judgment-holds (contractive (μ α (U (→ Int α) ∅))))]
+     [(judgment-holds (contractive (μ α (U (Nil ++) (Cons ++ τ α) ∅))))])
+    (check-false* values
+     [(judgment-holds (contractive (μ α α)))]
+     ;; TODO ?
+     #;[(judgment-holds (contractive (μ α (U (→ α Int) ∅))))])
+  )
+)
+
+(define-metafunction PureScheme
+  neg-flag? : partition -> boolean
+  [(neg-flag? (k -- σ ...))
+   #true]
+  [(neg-flag? partition)
+   #false])
+
+(define-metafunction PureScheme
+  normalize : τ -> τ
+  [(normalize slack)
+   slack]
+  [(normalize (μ α τ))
+   (μ α #{normalize τ})]
+  [(normalize (U partition ... slack))
+   slack
+   (where (#t ...) (#{neg-flag? partition} ...))]
+  [(normalize (U partition ... slack))
+   (U ,@(sort (term (partition ...)) symbol<? #:key car) slack)])
+
+(define-judgment-form PureScheme
+  #:mode (τ=? I I)
+  #:contract (τ=? τ τ)
+  [
+   (where τ_2 #{normalize τ_0})
+   (where τ_2 #{normalize τ_1})
+   ---
+   (τ=? τ_0 τ_1)])
+
+(module+ test
+  (test-case "τ=?"
+    (check-true* values
+     [(judgment-holds (τ=? (U (Nil --) ∅) ∅))]
+     [(judgment-holds (τ=? (U (True ++) (False ++) ∅) (U (False ++) (True ++) ∅)))])
+  )
+)
