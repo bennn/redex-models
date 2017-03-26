@@ -31,7 +31,7 @@
   [c ::= basic-constant Prim]
   [Prim ::= unchecked-prim checked-prim]
   [basic-constant ::= integer boolean nil]
-  [unchecked-prim ::= add1 car cdr cons]
+  [unchecked-prim ::= add1 car cdr cons number? not]
   [checked-prim ::= check-add1 check-car check-cdr]
   [a ::= v check]
   [error ::= UNDEFINED]
@@ -268,6 +268,14 @@
    check]
   [(δ cdr (cons v_0 v_1))
    v_1]
+  [(δ number? integer)
+   #true]
+  [(δ number? v)
+   #false]
+  [(δ not #false)
+   #true]
+  [(δ not v)
+   #false]
   [(δ c v)
    UNDEFINED])
 
@@ -280,7 +288,9 @@
     (check-equal? (term #{δ cdr (cons 1 nil)}) (term nil))
     (check-equal? (term #{δ check-cdr (cons 1 nil)}) (term nil))
     (check-equal? (term #{δ check-cdr nil}) (term check))
-    (check-equal? (term #{δ cdr nil}) (term UNDEFINED))))
+    (check-equal? (term #{δ cdr nil}) (term UNDEFINED))
+    (check-equal? (term #{δ number? nil}) (term #false))
+    (check-equal? (term #{δ not #false}) (term #true))))
 
 (define-judgment-form PureScheme
   #:mode (meaningful I)
@@ -408,6 +418,10 @@
       ==> (term 2)]
      [(term (ap cdr (cons 5 nil)))
       ==> (term nil)]
+     [(term (ap number? 4))
+      ==> (term #true)]
+     [(term (ap not 2))
+      ==> (term #false)]
      [(term (let ([x (ap add1 2)]) (ap add1 x)))
       ==> (term 4)]
      [(term (CHECK-ap add1 (λ (x) #true)))
@@ -619,9 +633,43 @@
   [(substitute* () τ)
    τ]
   [(substitute* ((α σ) sub ...) τ)
-   (substitute* (sub ...) (substitute τ α σ))]
+   (substitute* (sub ...) (subst/flat τ α σ))]
   [(substitute* ((φ flag) sub ...) τ)
    (substitute* (sub ...) (substitute τ φ flag))])
+
+(define-metafunction PureScheme
+  subst/flat : τ α σ -> τ
+  [(subst/flat α α σ)
+   σ]
+  [(subst/flat slack α σ)
+   slack]
+  [(subst/flat (μ α τ) α σ)
+   (μ α τ)]
+  [(subst/flat (μ α_0 τ) α_1 σ)
+   (μ α_0 #{subst/flat τ α_1 σ})]
+  [(subst/flat (U partition_0 ... α) α σ)
+   (U partition_2 ... partition_1 ... slack)
+   (where (partition_2 ...) ,(for/list ([p (in-list (term (partition_0 ...)))])
+                               (list* (car p)
+                                      (cadr p)
+                                      (for/list ([τ (in-list (cddr p))])
+                                        (term #{subst/flat ,τ α σ})))))
+   (where (U partition_1 ... slack) σ)]
+  [(subst/flat (U partition_0 ... α) α σ)
+   (U partition_2 ... slack_1)
+   (where (partition_2 ...) ,(for/list ([p (in-list (term (partition_0 ...)))])
+                               (list* (car p)
+                                      (cadr p)
+                                      (for/list ([τ (in-list (cddr p))])
+                                        (term #{subst/flat ,τ α σ})))))
+   (where slack_1 σ)]
+  [(subst/flat (U partition_0 ... slack) α σ)
+   (U partition_2 ... slack)
+   (where (partition_2 ...) ,(for/list ([p (in-list (term (partition_0 ...)))])
+                               (list* (car p)
+                                      (cadr p)
+                                      (for/list ([τ (in-list (cddr p))])
+                                        (term #{subst/flat ,τ α σ})))))])
 
 (define-metafunction PureScheme
   dom : any -> x*
@@ -646,5 +694,49 @@
      [(judgment-holds (instance ((a (U (Num ++) ∅)) (b ++))
                                 (U (→ ++ (U (Num ++) ∅) (U (Num ++) ∅)) ∅)
                                 (∀ (a b) (U (→ b a a) ∅))))])
+    (let ([ts (term (∀ (f1 f2) (U (Num f1) (Nil f2) ∅)))])
+      (check-true* values
+       [(judgment-holds (instance ((f1 ++) (f2 ++)) (U (Num ++) (Nil ++) ∅) ,ts))]
+       [(judgment-holds (instance ((f1 --) (f2 ++)) (U (Num --) (Nil ++) ∅) ,ts))]
+       [(judgment-holds (instance ((f1 --) (f2 --)) (U (Num --) (Nil --) ∅) ,ts))]
+       [(judgment-holds (instance ((f1 ++) (f2 --)) (U (Num ++) (Nil --) ∅) ,ts))]))
+
+    (let ([num (term (∀ (a) (U (Num ++) a)))])
+      (check-true* values
+       [(judgment-holds (instance ((a ∅)) (U (Num ++) ∅) ,num))]
+       [(judgment-holds (instance ((a (U (True ++) ∅))) (U (Num ++) (True ++) ∅) ,num))]
+       [(judgment-holds (instance ((a (U (False ++) ∅))) (U (Num ++) (False ++) ∅) ,num))]
+       [(judgment-holds (instance ((a (U (True ++) (False ++) ∅))) (U (Num ++) (True ++) (False ++) ∅) ,num))]))
   )
 )
+
+;; checked primitives accept all inputs
+(define-metafunction PureScheme
+  typeof : c -> τ
+  [(typeof check-add1)
+   (∀ (α1 α2 α3 φ1) (U (→ ++ (U (Num φ1) α3) (U (Num ++) α1)) α2))]
+  [(typeof check-car)
+   (∀ (α1 α2 α3 α4 φ1) (U (→ ++ (U (Cons φ1 α1 α2) α4) α1) α3))]
+  [(typeof check-cdr)
+   (∀ (α1 α2 α3 α4 φ1) (U (→ ++ (U (Cons φ1 α1 α2) α4) α2) α3))]
+  [(typeof add1)
+   ;; bad version (causes reverse-flow, does not have ∅ as subtype of input type)
+   ;; (∀ (α1 α2) (U (→ ++ (U (Num ++) ∅) (U (Num ++) α1)) α2))
+   (∀ (α1 α2 φ) (U (→ ++ (U (Num φ) ∅) (U (Num ++) α1)) α2))]
+  [(typeof integer)
+   (∀ (α) (U (Num ++) α))]
+  [(typeof #true)
+   (∀ (α) (U (True ++) α))]
+  [(typeof #false)
+   (∀ (α) (U (False ++) α))]
+  [(typeof number?)
+   (∀ (α1 α2 α3) (U (→ ++ α1 (U (True ++) (False ++) α2)) α3))]
+  [(typeof not)
+   (∀ (α1 α2 α3) (U (→ ++ α1 (U (True ++) (False ++) α2)) α3))]
+  [(typeof cons)
+   (∀ (α1 α2 α3 α4) (U (→ ++ α1 (U (→ ++ α2 (U (Cons ++ α1 α2) ∅)) α3)) α4))]
+  [(typeof car)
+   (∀ (α1 α2 α3 φ) (U (→ ++ (U (Cons φ α1 α2) ∅) α1) α3))]
+  [(typeof cdr)
+   (∀ (α1 α2 α3 φ) (U (→ ++ (U (Cons φ α1 α2) ∅) α2) α3))])
+
