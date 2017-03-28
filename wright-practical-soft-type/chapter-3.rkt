@@ -55,6 +55,7 @@
   [S ::= ;; substitution
          (sub ...)]
   [sub ::= (φ flag) (α τ)]
+  [A ::= ((x Σ) ...)]
   ;; ---
   [k* ::= ;; X in the dissertation, aka "set of k" aka "label"
           (k ...)]
@@ -62,6 +63,7 @@
   [τ* ::= (τ ...)]
   [x* ::= (x ...)]
   [ν* ::= (ν ...)]
+  [α* ::= (α ...)]
   [x α φ ν ::= ;; x = program variable
              ;; α = type variable
              ;; φ = flag variable
@@ -87,6 +89,7 @@
 (define flag? (redex-match? PureScheme flag))
 (define k? (redex-match? PureScheme k))
 (define ν*? (redex-match? PureScheme ν*))
+(define A? (redex-match? PureScheme A))
 (define Prim? (redex-match? PureScheme Prim))
 
 (define (check? x)
@@ -673,12 +676,14 @@
 
 (define-metafunction PureScheme
   dom : any -> x*
+  [(dom ())
+   ()]
   [(dom any)
    ,(sort (map car (term any)) symbol<?)
    (side-condition (pair? (term any)))
    (side-condition (andmap pair? (term any)))])
 
-;; special "<"
+;; special "<", looks like "subtype"
 (define-judgment-form PureScheme
   #:mode (instance I I I)
   #:contract (instance S τ Σ)
@@ -712,7 +717,7 @@
 
 ;; checked primitives accept all inputs
 (define-metafunction PureScheme
-  typeof : c -> τ
+  typeof : c -> Σ
   [(typeof check-add1)
    (∀ (α1 α2 α3 φ1) (U (→ ++ (U (Num φ1) α3) (U (Num ++) α1)) α2))]
   [(typeof check-car)
@@ -739,4 +744,197 @@
    (∀ (α1 α2 α3 φ) (U (→ ++ (U (Cons φ α1 α2) ∅) α1) α3))]
   [(typeof cdr)
    (∀ (α1 α2 α3 φ) (U (→ ++ (U (Cons φ α1 α2) ∅) α2) α3))])
+
+(module+ test
+  (check-true* Σ?
+   [(term #{typeof check-add1})]
+   [(term #{typeof check-car})]
+   [(term #{typeof check-cdr})]
+   [(term #{typeof add1})]
+   [(term #{typeof 4})]
+   [(term #{typeof #true})]
+   [(term #{typeof #false})]
+   [(term #{typeof number?})]
+   [(term #{typeof not})]
+   [(term #{typeof cons})]
+   [(term #{typeof car})]
+   [(term #{typeof cdr})]))
+
+;; -----------------------------------------------------------------------------
+;; Section 3.5 static type checking
+
+;; A judgment `A ⊢ e : τ` is a typing.
+;; A term `e` is untypeable if there is no type `τ'` such that `A ⊢ e : τ'` holds
+
+(define-metafunction PureScheme
+  A-add : A [x ↦ Σ] -> A
+  [(A-add A [x ↦ Σ])
+   ((x_0 Σ_0) ... (x Σ) (x_2 Σ_2) ...)
+   (where ((x_0 Σ_0) ... (x Σ_1) (x_2 Σ_2) ...) A)]
+  [(A-add A [x ↦ Σ])
+   ,(cons (term (x Σ)) (term A))])
+
+(define-metafunction PureScheme
+  A-ref : A x -> Σ
+  [(A-ref A x)
+   Σ
+   (where ((x_0 Σ_0) ... (x Σ) (x_1 Σ_1) ...) A)])
+
+(define-metafunction PureScheme
+  A-cod : A -> Σ*
+  [(A-cod A)
+   (Σ ...)
+   (where ((α Σ) ...) A)])
+
+(define-metafunction PureScheme
+  infer-substitution# : τ Σ -> S
+  [(infer-substitution# τ_0 τ_1)
+   ()]
+  [(infer-substitution# τ_0 (∀ (ν ...) τ_1))
+   ((ν ∅) ...)])
+
+(define-judgment-form PureScheme
+  #:mode (⊢ I I I O)
+  #:contract (⊢ A e τ* τ*)
+  [
+   (where Σ #{typeof c})
+   (where S #{infer-substitution# τ_0 Σ})
+   (instance S τ_0 Σ)
+   --- const⊢
+   (⊢ A c (τ_0 τ_1 ...) (τ_1 ...))]
+  [
+   (instance () τ_0 #{A-ref x})
+   --- id⊢
+   (⊢ A x (τ_0 τ_1 ...) (τ_1 ...))]
+  [
+   (⊢ A e_1 ((U (→ ++ τ_2 τ_1) ∅) τ_3 ...) (τ_4 ...))
+   (⊢ A e_2 (τ_2 τ_4 ...) (τ_5 ...))
+   --- ap⊢
+   (⊢ A (ap e_1 e_2) (τ_1 τ_2 τ_3 ...) (τ_5 ...))]
+  [
+   (⊢ A e_1 ((U (→ ++ τ_2 τ_1) τ_3) τ_4 ...) (τ_5 ...))
+   (⊢ A e_2 (τ_2 τ_5 ...) (τ_6 ...))
+   --- CHECK-ap⊢
+   (⊢ A (CHECK-ap e_1 e_2) (τ_1 τ_2 τ_3 τ_4 ...) (τ_6 ...))]
+  [
+   (⊢ #{A-add A [x ↦ τ_1]} e (τ_2 τ_4 ...) (τ_5 ...))
+   --- lam⊢
+   (⊢ A (λ (x) e) ((U (→ ++ τ_1 τ_2) τ_3) τ_4 ...) (τ_5 ...))]
+  [
+   (⊢ A e_1 (τ_1 τ_3 ...) (τ_4 ...))
+   (⊢ A e_2 (τ_2 τ_4 ...) (τ_5 ...))
+   (⊢ A e_3 (τ_2 τ_5 ...) (τ_6 ...))
+   --- if⊢
+   (⊢ A (if e_1 e_2 e_3) (τ_2 τ_1 τ_3 ...) (τ_6 ...))]
+  [
+   (⊢ A e_1 (τ_1 τ_3 ...) (τ_4 ...))
+   (⊢ #{A-add A [x ↦ #{Close τ_1 A}]} e_2 (τ_2 τ_4 ...) (τ_5 ...))
+   --- let⊢
+   (⊢ A (let ([x e_1]) e_2) (τ_2 τ_1 τ_3 ...) (τ_5 ...))]
+)
+
+(define-judgment-form PureScheme
+  #:mode (FV I O)
+  [
+   (FV τ α*_1)
+   (where α*_2 ,(set-subtract (term α*_1) (term α*_0)))
+   --- Σ
+   (FV (∀ α*_0 τ) α*_2)]
+  [
+   (FV τ ν*_0)
+   (where ν*_1 ,(set-remove (term ν*_0) (term α)))
+   --- μ
+   (FV (μ α τ) ν*_1)]
+  [
+   --- α
+   (FV α (α))]
+  [
+   --- ∅
+   (FV ∅ ())]
+  [
+   (FV partition ν*_0) ...
+   (FV slack ν*_1)
+   (where ν*_2 ,(set-union* (cons (term ν*_1) (term (ν*_0 ...)))))
+   --- U
+   (FV (U partition ... slack) ν*_2)]
+  [
+   (FV σ ν*_1) ...
+   (where ν*_2 ,(set-union* (term (ν*_1 ...))))
+   --- partition
+   (FV (k flag σ ...) ν*_2)])
+
+(module+ test
+  (test-case "FV"
+  )
+)
+
+(define-metafunction PureScheme
+  FV# : any -> any
+  [(FV# Σ)
+   α*
+   (judgment-holds (FV Σ α*))]
+  [(FV# τ)
+   α*
+   (judgment-holds (FV τ α*))]
+  [(FV# A)
+   ,(set-union* (term (α* ...)))
+   (where (Σ ...) #{A-cod A})
+   (where (α* ...) (#{FV# Σ} ...))]
+  [(FV# Σ)
+   ,(raise-user-error 'FV "undefined for ~a" (term Σ))])
+
+(define (set-union* set*)
+  (if (null? set*)
+    '()
+    (for/fold ([acc (car set*)])
+              ([st (in-list set*)])
+      (set-union acc st))))
+
+(module+ test
+  (test-case "FV"
+    (check-apply* (λ (t) (term #{FV# ,t}))
+     [(term (U (Num ++) ∅))
+      ==> (term ())]
+     [(term (∀ (a1) (U (Num ++) ∅)))
+      ==> (term ())]
+     [(term (U (→ ++ α β) ∅))
+      ==> (term (α β))]
+     [(term (∀ (α) (U (→ ++ α β) ∅)))
+      ==> (term (β))])))
+
+;; Return a typescheme that quatifies over free vars in τ
+;;  but NOT freevars in A
+(define-metafunction PureScheme
+  Close : τ A -> Σ
+  [(Close τ A)
+   (∀ ν*_2 τ)
+   (where ν*_0 #{FV# τ})
+   (where ν*_1 #{FV# A})
+   (where ν*_2 ,(set-subtract (term ν*_0) (term ν*_1)))])
+
+(define-metafunction PureScheme
+  well-typed : e τ* -> boolean
+  [(well-typed e τ*)
+   #true
+   (judgment-holds (⊢ () e τ* ()))]
+  [(well-typed e τ*)
+   ,(raise-user-error 'well-typed "extra types ~a" (term τ*_1))
+   (judgment-holds (⊢ () e τ* τ*_1))]
+  [(well-typed e τ)
+   #false])
+
+;; Theorem: type soundness,
+;; - if `⊢ e : τ` then `e` diverges or `e -->* v` and `⊢ v : τ`
+
+;; Theorem: if program in "Stuck" there's no τ that can type it.
+
+(module+ test
+  (test-case "well-typed"
+  (parameterize ([*debug* #t])
+    (check-true* values
+     [(term #{well-typed 4 ((U (Num ++) ∅))})]
+    )
+    )
+  )
+)
 
