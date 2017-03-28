@@ -57,6 +57,7 @@
   [sub ::= (φ flag) (α τ)]
   [A ::= ((x Σ) ...)]
   ;; ---
+  [Σ* ::= (Σ ...)]
   [k* ::= ;; X in the dissertation, aka "set of k" aka "label"
           (k ...)]
   [σ* ::= (σ ...)]
@@ -690,8 +691,15 @@
   [
    (where ν* #{dom S})
    (where τ_0 #{substitute* S τ_1})
-   ---
-   (instance S τ_0 (∀ ν* τ_1))])
+   --- subst
+   (instance S τ_0 (∀ ν* τ_1))]
+  [
+   --- id
+   (instance S τ τ)]
+  [
+   --- ad-hoc-subtyping
+   (instance S (U partition_0 partition_1 ... slack_0)
+               (U partition_2 ... partition_0 partition_3 ... slack_1))])
 
 (module+ test
   (test-case "instance"
@@ -793,17 +801,29 @@
   [(infer-substitution# τ_0 (∀ (ν ...) τ_1))
    ((ν ∅) ...)])
 
+(define-metafunction PureScheme
+  make-union : τ τ -> τ
+  [(make-union (U partition_0 ... ∅) (U partition_1 ... slack))
+   (U partition_0 ... partition_1 ... slack)]
+  [(make-union (U partition_0 ... slack) (U partition_1 ... ∅))
+   (U partition_0 ... partition_1 ... slack)]
+  [(make-union (U partition_0 ... ∅) slack)
+   (U partition_0 ... slack)]
+  [(make-union slack (U partition_1 ... ∅))
+   (U partition_1 ... slack)])
+
 (define-judgment-form PureScheme
   #:mode (⊢ I I I O)
   #:contract (⊢ A e τ* τ*)
   [
    (where Σ #{typeof c})
    (where S #{infer-substitution# τ_0 Σ})
+   (side-condition ,(debug "CONST check ~a < ~a" (term τ_0) (term Σ)))
    (instance S τ_0 Σ)
    --- const⊢
    (⊢ A c (τ_0 τ_1 ...) (τ_1 ...))]
   [
-   (instance () τ_0 #{A-ref x})
+   (instance () τ_0 #{A-ref A x})
    --- id⊢
    (⊢ A x (τ_0 τ_1 ...) (τ_1 ...))]
   [
@@ -812,17 +832,21 @@
    --- ap⊢
    (⊢ A (ap e_1 e_2) (τ_1 τ_2 τ_3 ...) (τ_5 ...))]
   [
-   (⊢ A e_1 ((U (→ ++ τ_2 τ_1) τ_3) τ_4 ...) (τ_5 ...))
+   (⊢ A e_1 (#{make-union (U (→ ++ τ_2 τ_1) ∅) τ_3} τ_4 ...) (τ_5 ...))
    (⊢ A e_2 (τ_2 τ_5 ...) (τ_6 ...))
    --- CHECK-ap⊢
    (⊢ A (CHECK-ap e_1 e_2) (τ_1 τ_2 τ_3 τ_4 ...) (τ_6 ...))]
   [
+   ;; The goal type in the paper is different, it is `(U (→ ++ τ_1 τ_2) τ_3)`
    (⊢ #{A-add A [x ↦ τ_1]} e (τ_2 τ_4 ...) (τ_5 ...))
    --- lam⊢
-   (⊢ A (λ (x) e) ((U (→ ++ τ_1 τ_2) τ_3) τ_4 ...) (τ_5 ...))]
+   (⊢ A (λ (x) e) ((U (→ ++ τ_1 τ_2) partition ... slack) τ_4 ...) (τ_5 ...))]
   [
+   (side-condition ,(debug "IF checking ~a ~a" (term e_1) (term (τ_1 τ_3 ...))))
    (⊢ A e_1 (τ_1 τ_3 ...) (τ_4 ...))
+   (side-condition ,(debug "IF checking ~a ~a" (term e_2) (term (τ_2 τ_4 ...))))
    (⊢ A e_2 (τ_2 τ_4 ...) (τ_5 ...))
+   (side-condition ,(debug "IF checking ~a ~a" (term e_3) (term (τ_2 τ_5 ...))))
    (⊢ A e_3 (τ_2 τ_5 ...) (τ_6 ...))
    --- if⊢
    (⊢ A (if e_1 e_2 e_3) (τ_2 τ_1 τ_3 ...) (τ_6 ...))]
@@ -907,7 +931,9 @@
 (define-metafunction PureScheme
   Close : τ A -> Σ
   [(Close τ A)
-   (∀ ν*_2 τ)
+   ,(if (null? (term ν*_2))
+      (term τ)
+      (term (∀ ν*_2 τ)))
    (where ν*_0 #{FV# τ})
    (where ν*_1 #{FV# A})
    (where ν*_2 ,(set-subtract (term ν*_0) (term ν*_1)))])
@@ -920,7 +946,7 @@
   [(well-typed e τ*)
    ,(raise-user-error 'well-typed "extra types ~a" (term τ*_1))
    (judgment-holds (⊢ () e τ* τ*_1))]
-  [(well-typed e τ)
+  [(well-typed e τ*)
    #false])
 
 ;; Theorem: type soundness,
@@ -929,11 +955,24 @@
 ;; Theorem: if program in "Stuck" there's no τ that can type it.
 
 (module+ test
-  (test-case "well-typed"
+  (define numt (term (U (Num ++) ∅)))
+  (define boolt (term (U (True ++) (False ++) ∅)))
+
+  (test-case "well-typed:based"
+    (check-true* values
+     [(term #{well-typed 4 (,numt)})]
+     [(term #{well-typed (λ (x) x) ((U (→ ++ ,numt ,numt) ∅))})]
+     [(term #{well-typed (ap (λ (x) x) 4) (,numt ,numt)})]
+     [(term #{well-typed (CHECK-ap (λ (x) x) 4) (,numt ,numt ∅)})]
+     [(term #{well-typed (if 1 2 3) (,numt ,numt)})]
+     [(term #{well-typed (let ([x 1]) x) (,numt ,numt)})]))
+
+  #;(test-case "well-typed:less-basic"
   (parameterize ([*debug* #t])
     (check-true* values
-     [(term #{well-typed 4 ((U (Num ++) ∅))})]
-    )
+     ;; TODO need to infer smarter substitution
+     [(term #{well-typed (if #true 1 2) (,numt ,boolt)})]
+     [(term #{well-typed (if #true 1 #false) ((U (Num ++) (True ++) (False ++) ∅) ,boolt)})])
     )
   )
 )
