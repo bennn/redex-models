@@ -87,6 +87,7 @@
 (define Σ? (redex-match? PureScheme Σ))
 (define S? (redex-match? PureScheme S))
 (define partition? (redex-match? PureScheme partition))
+(define slack? (redex-match? PureScheme slack))
 (define flag? (redex-match? PureScheme flag))
 (define k? (redex-match? PureScheme k))
 (define ν*? (redex-match? PureScheme ν*))
@@ -742,6 +743,8 @@
    (∀ (α) (U (True ++) α))]
   [(typeof #false)
    (∀ (α) (U (False ++) α))]
+  [(typeof nil)
+   (∀ (α) (U (Nil ++) α))]
   [(typeof number?)
    (∀ (α1 α2 α3) (U (→ ++ α1 (U (True ++) (False ++) α2)) α3))]
   [(typeof not)
@@ -754,19 +757,103 @@
    (∀ (α1 α2 α3 φ) (U (→ ++ (U (Cons φ α1 α2) ∅) α2) α3))])
 
 (module+ test
-  (check-true* Σ?
-   [(term #{typeof check-add1})]
-   [(term #{typeof check-car})]
-   [(term #{typeof check-cdr})]
-   [(term #{typeof add1})]
-   [(term #{typeof 4})]
-   [(term #{typeof #true})]
-   [(term #{typeof #false})]
-   [(term #{typeof number?})]
-   [(term #{typeof not})]
-   [(term #{typeof cons})]
-   [(term #{typeof car})]
-   [(term #{typeof cdr})]))
+  (test-case "typeof"
+    (check-true* Σ?
+     [(term #{typeof check-add1})]
+     [(term #{typeof check-car})]
+     [(term #{typeof check-cdr})]
+     [(term #{typeof add1})]
+     [(term #{typeof 4})]
+     [(term #{typeof #true})]
+     [(term #{typeof #false})]
+     [(term #{typeof number?})]
+     [(term #{typeof not})]
+     [(term #{typeof cons})]
+     [(term #{typeof car})]
+     [(term #{typeof cdr})]))
+
+  ;; Definition 3.6 : typeability important for soundness
+  (test-case "typeability-condition:1"
+    (define-metafunction PureScheme
+      get/tag : Σ k -> any
+      [(get/tag (∀ ν* τ) k)
+       (get/tag τ k)]
+      [(get/tag (U partition_0 ... (k flag τ_0 ...) partition_1 ... slack) k)
+       (U (k ++ τ_0 ...) ∅)]
+      [(get/tag τ k)
+       #f])
+
+    (define-metafunction PureScheme
+      random-value/type : τ -> v
+      [(random-value/type τ)
+       ,(generate-term PureScheme integer 1)
+       (side-condition (printf "CHECK for ~a in ~a~n" (term Num) (term τ)))
+       (where τ_0 #{get/tag τ Num})]
+      [(random-value/type τ)
+       ,(generate-term PureScheme boolean 1)
+       (where τ_0 #{get/tag τ True})
+       (where τ_1 #{get/tag τ False})]
+      [(random-value/type τ)
+       #true
+       (where τ_0 #{get/tag τ True})]
+      [(random-value/type τ)
+       #false
+       (where τ_0 #{get/tag τ False})]
+      [(random-value/type τ)
+       nil
+       (where τ_0 #{get/tag τ Nil})]
+      [(random-value/type τ)
+       (cons #{random-value/type τ_0} #{random-value/type τ_1})
+       (where (U (Cons ++ τ_0 τ_1) ∅) #{get/tag τ Cons})]
+      [(random-value/type α)
+       #{random-value/type (U (Num ++) ∅)}] ;; hack
+      [(random-value/type τ)
+       ,(raise-user-error 'random-value/type "undefined for ~a" (term τ))])
+
+    (define-metafunction PureScheme
+      hack-unslack : Σ -> τ
+      [(hack-unslack (U partition ... slack))
+       (U partition ... ∅)]
+      [(hack-unslack slack)
+       slack]
+      [(hack-unslack Σ)
+       ,(raise-user-error 'hack-unslack "not implemented for ~a but fix 'instance' instead" (term Σ))])
+
+    (define-metafunction PureScheme
+      check-typeability-1 : Prim -> boolean
+      [(check-typeability-1 Prim_0)
+       ,(or (equal? (term check) (term a))
+            (and (v? (term a))
+                 (or (slack? (term τ_1))
+                     (term #{well-typed a (#{hack-unslack τ_1})}))))
+       (where (U (→ flag τ_0 τ_1) ∅) #{get/tag #{typeof Prim_0} →})
+       (side-condition (debug "typeability ~a has arrow ~a" (term Prim_0) (term (→ flag τ_0 τ_1))))
+       (where v #{random-value/type τ_0})
+       (side-condition (debug "typeability applying ~a" (term (Prim_0 v))))
+       (where a #{δ Prim_0 v})]
+      [(check-typeability-1 Prim)
+       ,(raise-user-error 'check-typeability-1 "untypeable primitive ~a" (term Prim))])
+
+    (for ([p (in-list (term (add1 car cdr  #;(TODO cons  number?  not)
+                             check-add1 check-car check-cdr)))])
+      (check-true (term #{check-typeability-1 ,p})
+                  (format "typeability 1: ~a" p))))
+
+  (test-case "typeability-condition:2"
+    ;; forall c not in Prim, typeof(c) is not an arrow
+    ;;  formally, not exist τ1 τ2 such that [(U (→ ++ τ1 τ2) ∅) <: typeof(c)]
+
+    (define-metafunction PureScheme
+      arrow-not-in : Σ -> boolean
+      [(arrow-not-in (∀ ν* τ))
+       (arrow-not-in τ)]
+      [(arrow-not-in τ)
+       ,(not (set-member? (term k*) (term →)))
+       (where k* #{tags τ})])
+
+    (for ([t (in-list (term (0 -1 10 999 #true #false nil)))])
+      (check-true (term #{arrow-not-in #{typeof ,t}}))))
+)
 
 ;; -----------------------------------------------------------------------------
 ;; Section 3.5 static type checking
@@ -977,3 +1064,11 @@
   )
 )
 
+;; TODO
+;; - define eval
+;; - define typeability
+;; - change -->* to include typeability
+
+
+;; -----------------------------------------------------------------------------
+;;
