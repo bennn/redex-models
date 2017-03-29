@@ -3,7 +3,10 @@
 (require
   "../utils.rkt"
   racket/set
-  redex/reduction-semantics)
+  redex/reduction-semantics
+  (only-in racket/string
+    string-prefix?
+    non-empty-string?))
 
 (module+ test
   (require rackunit rackunit-abbrevs))
@@ -93,6 +96,79 @@
 (define ν*? (redex-match? PureScheme ν*))
 (define A? (redex-match? PureScheme A))
 (define Prim? (redex-match? PureScheme Prim))
+
+(define (first-char=? t c)
+  (and (non-empty-string? t)
+       (equal? (string-ref t 0) c)))
+
+(define (last-char=? t c)
+  (define L (string-length t))
+  (and (< 0 L)
+       (equal? (string-ref t (- L 1)) c)))
+
+(define (term-variable? t)
+  (and (symbol? t)
+       (first-char=? (symbol->string t) #\x)))
+
+(define (type-variable? t)
+  (and (symbol? t)
+       (first-char=? (symbol->string t) #\α)))
+
+(define (flag-variable? t)
+  (and (symbol? t)
+       (first-char=? (symbol->string t) #\φ)))
+
+(define (ν? t)
+  (or (type-variable? t)
+      (flag-variable? t)))
+
+(define (absent-variable? t)
+  (and (ν? t)
+       (last-char=? (symbol->string t) #\~)))
+
+(module+ test
+  (test-case "first-char=?"
+    (check-apply* first-char=?
+     ["racket" #\r
+      ==> #true]
+     ["racket" #\t
+      ==> #false]
+     ["a" #\a
+      ==> #true]))
+
+  (test-case "last-char=?"
+    (check-apply* last-char=?
+     ["racket" #\r
+      ==> #false]
+     ["racket" #\t
+      ==> #true]
+     ["a" #\a
+      ==> #true]))
+
+  (test-case "term-variable?"
+    (for ([good (in-list '(x x1 x2))])
+      (check-true (term-variable? good)))
+    (for ([bad (in-list '(a y c a2 y3))])
+      (check-false (term-variable? bad))))
+
+  (test-case "type-variable?"
+    (for ([good (in-list '(α α1 α2))])
+      (check-true (type-variable? good)))
+    (for ([bad (in-list '(β β3 x2 a))])
+      (check-false (type-variable? bad))))
+
+  (test-case "flag-variable?"
+    (for ([good (in-list '(φ φ1 φ2))])
+      (check-true (flag-variable? good)))
+    (for ([bad (in-list '(a x y α zzz))])
+      (check-false (flag-variable? bad))))
+
+  (test-case "absent-variable?"
+    (for ([good (in-list '(α1~ φ~ φfoobar~ αyolo~))])
+      (check-true (absent-variable? good)))
+    (for ([bad (in-list '(a b mangostein α φ φ3))])
+      (check-false (absent-variable? bad))))
+)
 
 (define (check? x)
   (equal? x (term check)))
@@ -787,7 +863,7 @@
       random-value/type : τ -> v
       [(random-value/type τ)
        ,(generate-term PureScheme integer 1)
-       (side-condition (printf "CHECK for ~a in ~a~n" (term Num) (term τ)))
+       (side-condition (debug "CHECK for ~a in ~a~n" (term Num) (term τ)))
        (where τ_0 #{get/tag τ Num})]
       [(random-value/type τ)
        ,(generate-term PureScheme boolean 1)
@@ -1071,4 +1147,150 @@
 
 
 ;; -----------------------------------------------------------------------------
-;;
+;; Section 3.6 Soft Type Checking
+
+;; TODO
+;; - where is S coming from?
+;; - where is τ coming from?
+;; 
+;; dammit dammit this is not an algorithm
+;(define-judgment-form PureScheme
+;  #:mode (S⇒ I I O O)
+;  #:contract (S⇒ A e e τ)
+;  [
+;   (instance S τ #{soft-typeof c})
+;   (where (ν ...) ,(filter absent-variable? (term #{dom S})))
+;   (where #true #{empty* (#{S-ref ν} ...)})
+;   --- OKconst
+;   (S⇒ A c c τ)]
+;  [
+;   (instance S τ {#soft-typeof c})
+;   (where (ν ...) ,(filter absent-variable? (term #{dom S})))
+;   (where #false #{empty* (#{S-ref ν} ...)})
+;   --- const
+;   (S⇒ A c #{checked c} τ)]
+;  [
+;   (instance S τ #{A-ref x})
+;   --- id
+;   (S⇒ A x x τ)]
+;  [
+;   (S⇒ A e_1 e_3 τ_0)
+;   (where ((U (→ ++ τ_2 τ_1) ∅) τ_3) #{de-unionize τ_0 →})
+;   (absent τ_3)
+;   (S⇒ A e_2 e_4 τ_2)
+;   (where #true #{empty* (τ_3)})
+;   --- OKap
+;   (S⇒ A (ap e_1 e_2) (ap e_3 e_4) τ_1)]
+;  [
+;   (S⇒ A e_1 e_3 τ_0)
+;   (where ((U (→ ++ τ_2 τ_1) ∅) τ_3) #{de-unionize τ_0 →})
+;   (absent τ_3)
+;   (S⇒ A e_2 e_4 τ_2)
+;   (where #false #{empty* (τ_3)})
+;   --- ap
+;   (S⇒ A (ap e_1 e_2) (CHECK-ap e_3 e_4) τ_1)]
+;  [
+;   (S⇒ A e_1 e_3 τ_0)
+;   (where ((U (→ flag τ_2 τ_1) ∅) τ_3) #{de-unionize τ_0 →})
+;   (S⇒ A e_2 e_4 τ_2)
+;   --- CHECK-ap
+;   (S⇒ A (CHECK-ap e_1 e_2) (CHECK-ap e_3 e_4) τ_1)]
+;  [
+;   (S⇒ #{extend A [x ↦ τ_1]} e_0 e_1 τ_2)
+;   --- lam
+;   (S⇒ A (λ (x) e_0) (λ (x) e_1) #{make-union (→ ++ τ_1 τ_2) τ_3})]
+;  [
+;   (S⇒ A e_1 e_4 τ_1)
+;   (S⇒ A e_2 e_5 τ_2)
+;   (S⇒ A e_3 e_6 τ_2)
+;   --- if
+;   (S⇒ A (if e_1 e_2 e_3) (if e_4 e_5 e_6) τ_2)]
+;  [
+;   (S⇒ A e_1 e_3 τ_1)
+;   (where A_1 #{extend A [x ↦ #{soft-close τ_1 A}]})
+;   (S⇒ A_1 e_2 e_4 τ_2)
+;   --- let
+;   (S⇒ A (let ([x e_1]) e_2) (let ([x e_3]) e_4) τ_2)]
+;)
+
+;(define-metafunction PureScheme
+;  soft-transform : e -> e
+;  [(soft-transform e_0)
+;   e_1
+;   (judgment-holds (S⇒ () e_0 e_1 τ_1))]
+;  [(soft-transform e)
+;   ,(raise-user-error 'S⇒ "undefined for ~a" (term e))])
+
+(define-metafunction PureScheme
+  soft-close : τ A -> Σ
+  [(soft-close τ A)
+   ,(if (null? (term ν*_2))
+      (term τ)
+      (term (∀ ν*_2 τ)))
+   (where ν*_0 #{FV# τ})
+   (where ν*_1 #{FV# A})
+   (where ν*_2 ,(set-subtract (filter (λ (x) (not (absent-variable? x))) (term ν*_0))
+                              (term ν*_1)))])
+
+(define-metafunction PureScheme
+  checked : c -> c
+  [(checked c)
+   ,(let ([str (symbol->string (term c))])
+      (if (string-prefix? str "check-")
+        (term c)
+        (term ,(string->symbol (string-append "check-" str)))))])
+
+(module+ test
+  (test-case "checked"
+    (check-apply* (λ (t) (term #{checked ,t}))
+     ['add1
+      ==> (term check-add1)]
+     ['check-add1
+      ==> (term check-add1)]
+     ['car
+      ==> (term check-car)])))
+
+(define-metafunction PureScheme
+  S-ref : S ν -> any
+  [(S-ref S ν)
+   any
+   (where ((ν_0 any_0) ... (ν any) (ν_1 any_1) ...) S)])
+
+;; TODO
+;(define-metafunction PureScheme
+;  empty* : (? ...) -> boolean
+;  [(empty* 
+;)
+
+(define-metafunction PureScheme
+  de-unionize : τ k -> τ*
+  [(de-unionize (U partition_0 ... (k flag σ ...) partition_1 ... slack) k)
+   ((U (k flag σ ...) ∅) (U partition_0 ... partition_1 ... slack))]
+  [(de-unionize (U partition ... slack) k)
+   ()] ;; fail
+  [(de-unionize τ k)
+   ,(raise-user-error 'de-unionize "sorry not sorry")])
+
+(define-judgment-form PureScheme
+  #:mode (absent I)
+  #:contract (absent Σ)
+  [
+   (FV Σ ν*)
+   (side-condition ,(andmap absent-variable? (term ν*)))
+   ---
+   (absent Σ)])
+
+(module+ test
+  (test-case "absent"
+    ;; TODO
+  )
+)
+
+(define-metafunction PureScheme
+  soft-typeof : c -> Σ
+  [(soft-typeof add1)
+   (∀ (α1 α2 α3- φ) (U (→ ++ (U (Num φ) α3-) (U (Num ++) α1)) α2))]
+  [(soft-typeof c)
+   ,(raise-user-error 'soft-typeof "undefined for ~a" (term c))])
+
+
