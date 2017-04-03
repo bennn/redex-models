@@ -606,70 +606,45 @@
    --- partition
    (contractive (k flag σ ...))]
   [
-   (side-condition ,(not (equal? (term α) (term τ))))
-   (strictly-positive α τ)
+   (contractive-in ν τ) ...
+   (contractive τ)
    --- rec
-   (contractive (μ α τ))])
+   (contractive (μ (ν ...) τ))])
 
 (define-judgment-form PureScheme
-  #:mode (strictly-positive I I)
-  #:contract (strictly-positive α τ)
-  [
-   --- slack
-   (strictly-positive α slack)]
-  [
-   --- union
-   (strictly-positive α (U partition ... slack))]
-  [
-   (strictly-negative α τ_1)
-   (strictly-positive α τ_2)
-   --- arrow
-   (strictly-positive α (→ flag τ_1 τ_2))]
-  [
-   (side-condition ,(not (equal? (term →) (term k))))
-   (strictly-positive α τ) ...
-   --- k
-   (strictly-positive α (k flag τ ...))]
-  [
-   (strictly-positive α τ)
-   --- rec
-   (strictly-positive α (μ α_1 τ))])
-
-(define-judgment-form PureScheme
-  #:mode (strictly-negative I I)
-  #:contract (strictly-negative α τ)
+  #:mode (contractive-in I I)
+  #:contract (contractive-in α any)
   [
    (side-condition ,(not (equal? (term α) (term slack))))
    --- slack
-   (strictly-negative α slack)]
+   (contractive-in α slack)]
   [
-   --- union
-   (strictly-negative α (U partition ... slack))]
+   (contractive-in α partition) ...
+   (contractive-in α slack)
+   --- U
+   (contractive-in α (U partition ... slack))]
   [
-   (strictly-positive α τ_1)
-   (strictly-negative α τ_2)
-   --- arrow
-   (strictly-negative α (→ flag τ_1 τ_2))]
+   (contractive-in α σ_0)
+   --- partition-→
+   (contractive-in α (→ flag σ_0 σ_1))]
   [
-   (side-condition ,(not (equal? (term →) (term k))))
-   (strictly-negative α τ) ...
-   --- k
-   (strictly-negative α (k flag τ ...))]
+   (side-condition ,(not (equal? (term k) (term →))))
+   --- partition
+   (contractive-in α (k flag σ ...))]
   [
-   (strictly-negative α τ)
-   --- rec
-   (strictly-negative α (μ α_1 τ))])
+   (contractive-in α τ)
+   --- μ
+   (contractive-in α (μ ν* τ))])
 
 (module+ test
   (test-case "contractive"
     (check-true* values
      [(judgment-holds (contractive (U (Num ++) ∅)))]
-     [(judgment-holds (contractive (μ α (U (→ Int α) ∅))))]
-     [(judgment-holds (contractive (μ α (U (Nil ++) (Cons ++ τ α) ∅))))])
+     [(judgment-holds (contractive (μ (α) (U (→ ++ Int α) ∅))))]
+     [(judgment-holds (contractive (μ (α) (U (Nil ++) (Cons ++ τ α) ∅))))])
     (check-false* values
-     [(judgment-holds (contractive (μ α α)))]
-     ;; TODO ?
-     #;[(judgment-holds (contractive (μ α (U (→ α Int) ∅))))])
+     [(judgment-holds (contractive (μ (α) α)))]
+     [(judgment-holds (contractive (μ (α) (U (→ ++ α Int) ∅))))])
   )
 )
 
@@ -956,6 +931,13 @@
   [(A-cod A)
    (Σ ...)
    (where ((α Σ) ...) A)])
+
+;; -----------------------------------------------------------------------------
+;; Lemma A.5: for any τ1 τ2 there exists S such that [S τ1 = S τ2]
+;;  depends on fact that soft types do not use -,φ
+;;
+;; "More generally, we can show that for every pair of types {(τ_i, τ_i')}
+;;  there is a substitution that unifies `τ_i` and `τ_i'` of every pair."
 
 (define-metafunction PureScheme
   infer-substitution# : τ Σ -> S
@@ -1293,4 +1275,8 @@
   [(soft-typeof c)
    ,(raise-user-error 'soft-typeof "undefined for ~a" (term c))])
 
+;; -----------------------------------------------------------------------------
 
+;; Lemma: static typability, if `S⇒ A e e+ t` then `Z A ⊢ e : Z τ`
+;;        where Z removes flag variables and ... blah blah
+;;   
