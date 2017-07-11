@@ -1,5 +1,8 @@
 #lang mf-apply racket/base
 
+;; TODO
+;; - handles struct? (still finite num. constructors)
+
 (require
   "../utils.rkt"
   racket/set
@@ -938,6 +941,8 @@
 ;;
 ;; "More generally, we can show that for every pair of types {(τ_i, τ_i')}
 ;;  there is a substitution that unifies `τ_i` and `τ_i'` of every pair."
+
+;; TODO
 
 (define-metafunction PureScheme
   infer-substitution# : τ Σ -> S

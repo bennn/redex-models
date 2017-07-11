@@ -16,6 +16,10 @@
          X F (F Σ ...)]
   [RTE ::= ;; regular tree expressions, technically R(F,X)
            ∅ x F (F RTE ...) (+ RTE RTE) (** X RTE)]
+  [A ::= ((X σ) ...)]
+  [σ ::= TYPES]
+  [τ ::= TYPES]
+  [S ::= ((X σ) ...)] ;; substitutions
   [X ::= variable-not-otherwise-mentioned])
 
 (define-metafunction RT
@@ -231,6 +235,20 @@
 ;; Definition 3.1 : Algorithm W
 ;;  (pretty simple, makes sense how to adapt this to SoftTypes,
 ;;   not so sure about Unification)
+
+;(define-judgment-form ML
+;  #:mode (W I I O O)
+;  #:contract (W Γ e S τ)
+;  [
+;   (where σ #{lookup A X})
+;   --- var
+;   (W A X () τ_sub)]
+
+(define-metafunction ML
+  lookup : A X -> σ
+  [(lookup A X)
+   σ
+   (where ((X_0 σ_0) ... (X σ) (X_1 σ_1) ...) A)])
 
 ;; Definition 3.3 : occurrences of constructors
 ;;  let C be set of constructors, Σ(C,X) set of terms over C with variables X

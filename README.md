@@ -26,3 +26,6 @@ This will:
 - in the file `<FILE.RKT>`
 
 
+### Conventions
+
+- metafunction names usually suffixed with a `#`
