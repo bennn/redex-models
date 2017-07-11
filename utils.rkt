@@ -1,7 +1,11 @@
 #lang racket
 
+;; DEPRECATED: use the redex-abbrevs package instead
+
 (provide
-  reflexive-transitive-closure/deterministic)
+  reflexive-transitive-closure/deterministic
+  (rename-out
+    [reflexive-transitive-closure/deterministic make--->*]))
 
 (require
   redex/reduction-semantics)
